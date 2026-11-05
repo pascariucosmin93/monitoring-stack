@@ -1,8 +1,9 @@
-# Observability
+# monitoring-stack
 
 Stack de monitorizare pentru clusterul Kubernetes (k3s): metrici de infrastructură, alerte
 Grafana-managed, probe HTTP, loguri centralizate și trace-uri OpenTelemetry. Se livrează cu Argo CD
-(GitOps): un push în `main` și clusterul se sincronizează.
+(GitOps): un push în `main` al acestui repo GitHub și clusterul se sincronizează. Verificările de
+configurație rulează în GitHub Actions (`.github/workflows/ci.yml`) la fiecare pull request și push pe `main`.
 
 ## Componente
 
@@ -165,7 +166,8 @@ temporare sunt eliminate la final. Nu se conectează la bazele de producție.
 | `kube/` | Manifestele Kubernetes (un fișier per componentă) |
 | `configs/` | Configurările aplicațiilor (Prometheus, Loki, Tempo, Alloy, OTel, Blackbox, Grafana), incluse în ConfigMap-uri prin `configMapGenerator` |
 | `configs/grafana/` | Datasource-uri, dashboard-uri și reguli de alertă provisionate |
-| `argocd/observability.yaml` | Aplicația Argo CD (se aplică o singură dată) |
+| `argocd/observability.yaml` | Aplicația Argo CD (se aplică o singură dată); `repoURL` este acest repo GitHub |
+| `.github/workflows/ci.yml` | CI GitHub Actions: `validate.sh`, `validate-configs.sh` și testul PostgreSQL 18 |
 | `scripts/` | Validare și crearea secretelor |
 
 Serviciile Kubernetes se numesc `prometheus`, `loki`, `tempo`, `otel-collector` ș.a., deci URL-urile din
@@ -176,7 +178,7 @@ Serviciile Kubernetes se numesc `prometheus`, `loki`, `tempo`, `otel-collector` 
 ```bash
 # 1. Secretele (nu sunt în Git): un fișier per cheie în ./secrets, apoi
 scripts/create-kube-secrets.sh
-# 2. Aplicația Argo CD (o singură dată). Repo-ul trebuie adăugat în Argo CD dacă e privat.
+# 2. Aplicația Argo CD (o singură dată). Repo-ul GitHub este public; dacă îl faci privat, adaugă-l în Argo CD cu credențiale.
 kubectl apply -f argocd/observability.yaml
 ```
 
@@ -255,7 +257,7 @@ sh scripts/validate.sh           # verificări statice, fără Docker
 sh scripts/validate-configs.sh   # promtool (config + interogări de alertă), otelcol, Loki, Alloy, YAML, kustomize + kubeconform
 ```
 
-`validate-configs.sh` folosește exact versiunile de imagini din `kube/*.yaml` și rulează și în CI.
+`validate-configs.sh` folosește exact versiunile de imagini din `kube/*.yaml` și rulează și în CI (GitHub Actions, runner `ubuntu-latest` cu Docker).
 
 După deploy:
 
