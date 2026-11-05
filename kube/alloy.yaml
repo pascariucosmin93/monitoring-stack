@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: observability
+spec:
+  selector:
+    matchLabels:
+      app: alloy
+  template:
+    metadata:
+      labels:
+        app: alloy
+    spec:
+      serviceAccountName: alloy
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: alloy
+          image: grafana/alloy:v1.19.2
+          args:
+            - run
+            - --stability.level=public-preview
+            - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/tmp/alloy
+            - /etc/alloy/config.alloy
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef: { fieldPath: spec.nodeName }
+          ports:
+            - { name: http, containerPort: 12345 }
+          readinessProbe:
+            httpGet: { path: /-/ready, port: 12345 }
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { cpu: 350m, memory: 384Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/alloy }
+            - { name: tmp, mountPath: /tmp/alloy }
+      volumes:
+        - name: config
+          configMap:
+            name: alloy-config
+        - name: tmp
+          emptyDir: {}

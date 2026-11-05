@@ -1,0 +1,165 @@
+# One exporter per physical server; roles can change after promotion.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter-postgress
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+      postgres-host: postgress
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+        postgres-host: postgress
+    spec:
+      # Nodul master rulează API server-ul k3s (SQLite/kine) și are I/O saturat; nu pune aici
+      # workload-uri care scriu mult pe disc.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - { key: node-role.kubernetes.io/control-plane, operator: DoesNotExist }
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sql-exporter
+          image: burningalchemist/sql_exporter:0.24.12
+          args: ["-config.file=/etc/sql-exporter/sql-exporter.yml"]
+          env:
+            - name: SQLEXPORTER_TARGET_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-monitoring
+                  key: postgress_dsn
+          ports:
+            - name: metrics
+              containerPort: 9399
+          # Probe the HTTP server, not /metrics: DB failure must not restart the exporter.
+          readinessProbe:
+            httpGet: { path: /, port: metrics }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/sql-exporter, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter-postgress
+  namespace: observability
+spec:
+  selector:
+    app: postgres-exporter
+    postgres-host: postgress
+  ports:
+    - name: metrics
+      port: 9399
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter-postgress-1
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+      postgres-host: postgress-1
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+        postgres-host: postgress-1
+    spec:
+      # Nodul master rulează API server-ul k3s (SQLite/kine) și are I/O saturat; nu pune aici
+      # workload-uri care scriu mult pe disc.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - { key: node-role.kubernetes.io/control-plane, operator: DoesNotExist }
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sql-exporter
+          image: burningalchemist/sql_exporter:0.24.12
+          args: ["-config.file=/etc/sql-exporter/sql-exporter.yml"]
+          env:
+            - name: SQLEXPORTER_TARGET_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-monitoring
+                  key: postgress_1_dsn
+          ports:
+            - name: metrics
+              containerPort: 9399
+          # Probe the HTTP server, not /metrics: DB failure must not restart the exporter.
+          readinessProbe:
+            httpGet: { path: /, port: metrics }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 96Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/sql-exporter, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: postgres-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter-postgress-1
+  namespace: observability
+spec:
+  selector:
+    app: postgres-exporter
+    postgres-host: postgress-1
+  ports:
+    - name: metrics
+      port: 9399
+      targetPort: metrics

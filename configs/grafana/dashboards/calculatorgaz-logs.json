@@ -1,0 +1,156 @@
+{
+  "uid": "calculatorgaz-logs",
+  "title": "CalculatorGaz · Logs",
+  "tags": ["calculatorgaz", "production", "loki", "logs"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "description": "Loguri Docker colectate de Alloy, redactate înainte de transport și păstrate în Loki/R2. Folosește filtrele pentru a restrânge investigația fără a expune identificatori de container ca labels.",
+  "templating": {
+    "list": [
+      {
+        "name": "stack",
+        "label": "Stack",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values({environment=\"production\"}, stack)",
+        "query": "label_values({environment=\"production\"}, stack)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 1,
+        "sort": 1,
+        "current": { "text": "All", "value": ["$__all"] }
+      },
+      {
+        "name": "service",
+        "label": "Serviciu",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values({environment=\"production\", stack=~\"$stack\"}, service)",
+        "query": "label_values({environment=\"production\", stack=~\"$stack\"}, service)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 1,
+        "sort": 1,
+        "current": { "text": "All", "value": ["$__all"] }
+      },
+      {
+        "name": "node",
+        "label": "Nod",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "definition": "label_values({environment=\"production\", stack=~\"$stack\", service=~\"$service\"}, node)",
+        "query": "label_values({environment=\"production\", stack=~\"$stack\", service=~\"$service\"}, node)",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "refresh": 1,
+        "sort": 1,
+        "current": { "text": "All", "value": ["$__all"] }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Linii de log în ultimele 5 minute",
+      "description": "Volumul de loguri al selecției curente. O scădere bruscă poate indica oprirea aplicației sau a colectorului.",
+      "type": "stat",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "sum(count_over_time({environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"}[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "0" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "Erori în ultimele 5 minute",
+      "description": "Potrivire case-insensitive pentru error, exception, fatal, panic sau failed.",
+      "type": "stat",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "sum(count_over_time({environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"} |~ \"(?i)(error|exception|fatal|panic|failed)\" [5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "0", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "title": "Streamuri active în ultimele 5 minute",
+      "description": "Numărul de combinații serviciu/nod care au produs loguri. Este un indicator rapid că Alloy vede containerele active.",
+      "type": "stat",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "count(sum by (service, node) (count_over_time({environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"}[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "0" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "id": 4,
+      "title": "Loki disponibil",
+      "description": "Sănătatea endpointului Loki, măsurată de Prometheus.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(up{job=\"loki\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }], "noValue": "NO DATA", "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "id": 5,
+      "title": "Volum de loguri pe serviciu",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "sum by (service) (rate({environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"}[$__interval]))", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "decimals": 2 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 7 }
+    },
+    {
+      "id": 6,
+      "title": "Erori pe serviciu",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "sum by (service) (rate({environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"} |~ \"(?i)(error|exception|fatal|panic|failed)\" [$__interval]))", "legendFormat": "{{service}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.01 }, { "color": "red", "value": 0.1 }] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 7 }
+    },
+    {
+      "id": 7,
+      "title": "Surse cu cele mai multe erori (1 h)",
+      "type": "bargauge",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "topk(10, sum by (service, node) (count_over_time({environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"} |~ \"(?i)(error|exception|fatal|panic|failed)\" [1h])))", "legendFormat": "{{service}} · {{node}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "noValue": "0" }, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "showUnfilled": true },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 8,
+      "title": "Erori recente — investighează aici",
+      "description": "Doar liniile cu semne de eroare (error, exception, panic, fatal, failed, ERR) care NU declară nivelul info, debug sau warn. Rezultatele sunt redactate de Alloy înainte să fie trimise către Loki. Ajustează intervalul de timp pentru incident.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "{environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"} |~ `(?i)(error|exception|panic|fatal|critical|traceback|failed|\\sERR\\s)` !~ `(?i)(level=(info|debug|trace|warn\\w*)|\"level\"\\s*:\\s*\"(info|debug|trace|warn\\w*)\"|\\s(INF|DBG|WRN)\\s|\\t(info|debug|warn\\w*)\\t)`", "refId": "A" }],
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "gridPos": { "h": 12, "w": 12, "x": 12, "y": 16 }
+    },
+    {
+      "id": 9,
+      "title": "Toate logurile — investigație live",
+      "description": "Folosește filtrul de serviciu înainte de a investiga un interval mare, pentru rezultate rapide.",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [{ "expr": "{environment=\"production\", stack=~\"$stack\", service=~\"$service\", node=~\"$node\"}", "refId": "A" }],
+      "options": { "dedupStrategy": "none", "enableLogDetails": true, "prettifyLogMessage": false, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 28 }
+    },
+    {
+      "id": 10,
+      "title": "Ghid de incident",
+      "type": "text",
+      "options": { "mode": "markdown", "content": "### Cum îl folosești în producție\n\n1. Restrânge mai întâi **Stack** și **Serviciu**, apoi setează intervalul exact al incidentului.\n2. Verifică panoul **Erori recente**; deschide detaliile unei linii pentru context și labels.\n3. Dacă volumul cade la zero dar aplicația ar trebui să fie activă, verifică **Loki disponibil**, alerta Alloy și starea podului în Kubernetes.\n4. Logurile sunt redactate de Alloy înainte de stocare; nu folosi logurile pentru secrete, parole sau date personale." },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 42 }
+    }
+  ]
+}

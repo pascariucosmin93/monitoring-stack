@@ -1,0 +1,2752 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: observability-discord
+        type: discord
+        disableResolveMessage: false
+        settings:
+          # Grafana resolves this variable from the process environment. The
+          # entrypoint reads that value from the mounted secret at startup.
+          url: $DISCORD_WEBHOOK
+          # Titlul implicit ("[FIRING:1] <alertă> <folder> (<etichete>)") era lung și zgomotos.
+          # Folosim doar folderul regulii (Cluster, Infrastructure, Proxmox). Footerul
+          # "Grafana vX.Y.Z" este pus de integrarea Discord și nu poate fi dezactivat.
+          title: '{{ .CommonLabels.grafana_folder }}'
+          message: |-
+            {{ range .Alerts }}
+            **{{ .Status }}** — {{ .Labels.alertname }}
+            {{ with .Labels.nodename }}**Nod:** `{{ . }}`{{ else }}{{ with .Labels.node }}**Nod:** `{{ . }}`{{ else }}{{ with .Labels.service }}**Serviciu:** `{{ . }}`{{ else }}{{ with .Labels.instance }}**Țintă:** `{{ . }}`{{ else }}**Țintă:** `{{ .Labels.job }}`{{ end }}{{ end }}{{ end }}{{ end }}
+            **Severitate:** `{{ .Labels.severity }}`
+            {{ if eq .Status "firing" }}{{ .Annotations.summary }}{{ else }}Problema s-a rezolvat.{{ end }}
+            {{ if .DashboardURL }}🔎 [Deschide dashboard-ul]({{ .DashboardURL }}){{ end }}
+            {{ end }}
+
+policies:
+  - orgId: 1
+    receiver: discord
+    group_by: [grafana_folder, alertname]
+
+# Reguli care nu mai există sau au fost redenumite la trecerea pe Kubernetes; trebuie
+# eliminate și din baza de date Grafana. Kafka nu mai este o dependență CalculatorGaz.
+deleteRules:
+  - orgId: 1
+    uid: calculatorgaz-aiven-kafka-down
+  - orgId: 1
+    uid: calculatorgaz-aiven-backup-failed
+  - orgId: 1
+    uid: swarm-manager-unreachable
+  - orgId: 1
+    uid: swarm-node-clock-skew
+  - orgId: 1
+    uid: swarm-node-disk-fill-prediction
+  - orgId: 1
+    uid: swarm-node-high-cpu
+  - orgId: 1
+    uid: swarm-node-high-memory
+  - orgId: 1
+    uid: swarm-node-low-disk
+  - orgId: 1
+    uid: swarm-node-low-inodes
+  - orgId: 1
+    uid: swarm-node-not-ready
+  - orgId: 1
+    uid: swarm-node-rebooted
+  - orgId: 1
+    uid: swarm-replicas-missing
+  - orgId: 1
+    uid: swarm-target-down
+  - orgId: 1
+    uid: swarm-task-crashloop
+  - orgId: 1
+    uid: swarm-task-oom-killed
+
+groups:
+  - orgId: 1
+    name: Cluster infrastructure
+    folder: Cluster
+    interval: 2m
+    rules:
+      - uid: cluster-target-down
+        title: Monitoring target unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'up{job!~"loki|proxmox-node|proxmox-guests"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # A failed scrape is an observability incident, not automatically a
+        # user outage. Loki and Proxmox have dedicated rules, so they are
+        # excluded here to avoid two notifications for the same failure.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Targetul {{ $labels.job }} / {{ $labels.instance }} nu mai răspunde; verifică endpointul și exporterul aferent.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "8"
+        labels:
+          severity: warning
+
+      - uid: loki-unavailable
+        title: Loki log storage unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'up{job="loki"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Loki nu răspunde; logurile noi nu pot fi căutate, iar persistența în R2 trebuie verificată.
+          __dashboardUid__: calculatorgaz-logs
+          __panelId__: "4"
+        labels:
+          severity: critical
+
+      - uid: alloy-collector-missing
+        title: Alloy log collector missing on a cluster node
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'count(up{job="node"} == 1) - (count(up{job="alloy"} == 1) or vector(0))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # `or vector(0)` keeps the rule meaningful when every Alloy task is
+        # gone: `count()` of an empty vector returns no series, not zero.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Un nod nu mai are un agent Alloy sănătos; logurile locale de pe acel nod nu sunt colectate.
+          __dashboardUid__: cluster-operations
+          __panelId__: "21"
+        labels:
+          severity: warning
+
+      - uid: cluster-workload-unavailable
+        title: Kubernetes workload has unavailable pods
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(kube_deployment_status_replicas_unavailable, "service", "$1", "deployment", "(.*)") or label_replace(kube_daemonset_status_number_unavailable, "service", "$1", "daemonset", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Workload-ul {{ $labels.namespace }}/{{ $labels.service }} are poduri indisponibile de peste 5 minute.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "4"
+        labels:
+          severity: critical
+
+      - uid: cluster-node-not-ready
+        title: Kubernetes node not ready
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'kube_node_status_condition{condition="Ready",status="true"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # A node that has stopped reporting is still listed by the Kubernetes API,
+        # so this fires even when its node-exporter is gone and `up == 0` never appears.
+        noDataState: OK
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: 'Nodul {{ $labels.node }} nu este ready.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "1"
+        labels:
+          severity: critical
+
+      - uid: calculatoargaz-health-down
+        title: CalculatorGaz health endpoint unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'probe_success{application="calculatorgaz",job="blackbox"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: Endpointul /api/health al CalculatorGaz nu răspunde cu HTTP 2xx.
+          __dashboardUid__: calculatorgaz-production
+          __panelId__: "1"
+        labels:
+          severity: critical
+
+      - uid: calculatorgaz-public-health-down
+        title: CalculatorGaz public endpoint unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'probe_success{application="calculatorgaz",monitor="public-edge"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: URL-ul public CalculatorGaz nu răspunde prin Cloudflare Tunnel.
+          __dashboardUid__: calculatorgaz-production
+          __panelId__: "16"
+        labels:
+          severity: critical
+
+      - uid: cluster-node-low-disk
+        title: Infrastructure node disk space critically low
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}) * on(instance) group_left(nodename) node_uname_info'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.10] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Discul root al nodului {{ $labels.nodename }} are sub 10% spațiu liber.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "7"
+        labels:
+          severity: critical
+
+      - uid: cluster-node-high-cpu
+        title: Infrastructure node CPU usage over 90%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])))) * on(instance) group_left(nodename) node_uname_info'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'CPU-ul nodului {{ $labels.nodename }} depășește 90% de cel puțin 10 minute.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "5"
+        labels:
+          severity: warning
+
+      - uid: cluster-node-high-memory
+        title: Infrastructure node memory usage over 90%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))) * on(instance) group_left(nodename) node_uname_info{nodename!="pve"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'RAM-ul utilizat pe nodul {{ $labels.nodename }} depășește 90% de cel puțin 10 minute.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "6"
+        labels:
+          severity: warning
+
+      - uid: cluster-high-cpu
+        title: HighClusterCPUUsage
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * (1 - avg(rate(node_cpu_seconds_total{job="node",mode="idle"}[5m])))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+              refId: B
+        # Alertă pe agregatul clusterului; alertele per nod (90%) rămân separate.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'CPU-ul mediu al clusterului depășește 85% de cel puțin 10 minute.'
+          __dashboardUid__: cluster-resource-usage
+          __panelId__: "5"
+        labels:
+          severity: warning
+
+      - uid: cluster-high-memory
+        title: HighClusterMemoryUsage
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * (1 - sum(node_memory_MemAvailable_bytes{job="node"}) / sum(node_memory_MemTotal_bytes{job="node"}))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+              refId: B
+        # Alertă pe agregatul clusterului; alertele per nod (90%) rămân separate.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'RAM-ul utilizat în cluster depășește 85% de cel puțin 10 minute.'
+          __dashboardUid__: cluster-resource-usage
+          __panelId__: "6"
+        labels:
+          severity: warning
+
+      - uid: calculatorgaz-aiven-postgresql-down
+        title: CalculatorGaz PostgreSQL unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'calculatorgaz_dependency_up{dependency="postgresql"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: CalculatorGaz nu poate executa un ping SQL autentificat către PostgreSQL (postgress.cosmin.home).
+          __dashboardUid__: calculatorgaz-production
+          __panelId__: "18"
+        labels:
+          severity: critical
+
+      - uid: postgres-backup-stale
+        title: PostgreSQL pgBackRest backup failed or stale
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(1 - max(pgbackrest_info_success{job="postgres-hosts"})) > 0 or max(pgbackrest_stanza_status_code{job="postgres-hosts"}) > 0 or (time() - max(pgbackrest_last_backup_any_timestamp_seconds{job="postgres-hosts"})) > 93600 or absent(pgbackrest_last_backup_any_timestamp_seconds{job="postgres-hosts"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # A temporary query gap must not leave a stale critical alert. Missing
+        # backup metrics are instead detected explicitly by `absent(...)`.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Backup-ul pgBackRest al PostgreSQL (repository R2) are erori, stanza nu e sănătoasă sau ultimul backup are peste 26 de ore.
+          __dashboardUid__: calculatorgaz-production
+          __panelId__: "21"
+        labels:
+          severity: critical
+
+  - orgId: 1
+    name: Capacity and pipelines
+    folder: Cluster
+    interval: 2m
+    rules:
+      - uid: cluster-pod-crashloop
+        title: Pod keeps restarting
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[15m])), "service", "$1", "pod", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2] }
+              refId: B
+        # Three or more container restarts within 15 minutes: a crash loop, a bad
+        # image or a failing probe.
+        noDataState: OK
+        execErrState: Alerting
+        for: 0s
+        annotations:
+          summary: 'Podul {{ $labels.namespace }}/{{ $labels.service }} a repornit de peste 2 ori în ultimele 15 minute (crash loop).'
+          __dashboardUid__: cluster-operations
+          __panelId__: "14"
+        labels:
+          severity: critical
+
+      - uid: cluster-pod-oom-killed
+        title: Container killed (OOM)
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(max by (namespace, pod, container) (kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}) and on (namespace, pod, container) (increase(kube_pod_container_status_restarts_total[15m]) > 0), "service", "$1", "pod", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # The container was last terminated with OOMKilled and restarted in the last
+        # 15 minutes: the kernel enforced its memory limit.
+        noDataState: OK
+        execErrState: Alerting
+        for: 0s
+        annotations:
+          summary: 'Containerul {{ $labels.container }} din podul {{ $labels.namespace }}/{{ $labels.service }} a fost omorât (OOMKilled); verifică limita de memorie.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "14"
+        labels:
+          severity: warning
+
+      - uid: container-memory-near-limit
+        title: Container memory close to its limit
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(max by (namespace, pod, container) (container_memory_working_set_bytes{container!="",pod!=""}) / max by (namespace, pod, container) (container_spec_memory_limit_bytes{container!="",pod!=""} > 0), "service", "$1", "pod", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.9] }
+              refId: B
+        # Working set above 90% of its container memory limit for 15 minutes: the next
+        # spike ends in an OOM kill.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Containerul {{ $labels.container }} din {{ $labels.namespace }}/{{ $labels.service }} folosește peste 90% din limita de memorie de 15 minute.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "15"
+        labels:
+          severity: warning
+
+      - uid: cadvisor-no-containers
+        title: cAdvisor exports no container metrics
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'count by (node) (container_memory_working_set_bytes{container!="",pod!=""}) or (0 * count by (node) (up{job="cadvisor"} == 1))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # cAdvisor can be up while seeing no containers: every container alert is then
+        # silently blind.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'cAdvisor de pe nodul {{ $labels.node }} rulează, dar nu raportează niciun container; metricile per container lipsesc.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "16"
+        labels:
+          severity: warning
+
+      - uid: cluster-node-disk-fill-prediction
+        title: Infrastructure node disk will fill within 24h
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 21600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(predict_linear(node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}[6h], 86400) and (node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} < 0.30)) * on(instance) group_left(nodename) node_uname_info'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0] }
+              refId: B
+        # Linear trend over 6 hours. Limited to disks already below 30% free so that
+        # short bursts on an almost empty disk do not page.
+        noDataState: OK
+        execErrState: Alerting
+        for: 30m
+        annotations:
+          summary: 'Discul root al nodului {{ $labels.nodename }} se va umple în mai puțin de 24 de ore la ritmul actual.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "9"
+        labels:
+          severity: warning
+
+      - uid: cluster-node-low-inodes
+        title: Infrastructure node running out of inodes
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(node_filesystem_files_free{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_files{mountpoint="/",fstype!~"tmpfs|overlay"}) * on(instance) group_left(nodename) node_uname_info'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.10] }
+              refId: B
+        # Docker layers and logs can exhaust inodes while bytes are still free.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Discul root al nodului {{ $labels.nodename }} are sub 10% inode-uri libere.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "17"
+        labels:
+          severity: warning
+
+      - uid: cluster-node-clock-skew
+        title: Infrastructure node clock out of sync
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'abs(node_timex_offset_seconds) * on(instance) group_left(nodename) node_uname_info'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.5] }
+              refId: B
+        # Clock skew breaks TLS validation, Raft and log/trace ordering.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Ceasul nodului {{ $labels.nodename }} este decalat cu peste 0,5 s; verifică NTP/chrony.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "18"
+        labels:
+          severity: warning
+
+      - uid: cluster-node-rebooted
+        title: Infrastructure node rebooted
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'changes(node_boot_time_seconds[30m]) * on(instance) group_left(nodename) node_uname_info'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # An unplanned reboot (kernel panic, power loss, watchdog) is worth knowing
+        # about even when all services recover by themselves.
+        noDataState: OK
+        execErrState: Alerting
+        for: 0s
+        annotations:
+          summary: 'Nodul {{ $labels.nodename }} a repornit în ultimele 30 de minute.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "19"
+        labels:
+          severity: warning
+
+      - uid: alloy-dropping-logs
+        title: Alloy is dropping log entries
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'sum by (instance) (increase(loki_write_dropped_entries_total[10m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # Entries dropped after retries are lost for good, even if Loki is up again.
+        noDataState: OK
+        execErrState: Alerting
+        for: 0s
+        annotations:
+          summary: 'Agentul Alloy {{ $labels.instance }} a pierdut linii de log în ultimele 10 minute; verifică Loki și R2.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "20"
+        labels:
+          severity: warning
+
+      - uid: otel-collector-dropping-telemetry
+        title: OpenTelemetry Collector refusing or failing to export spans
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(sum(rate(otelcol_exporter_send_failed_spans[10m])) or vector(0)) + (sum(rate(otelcol_receiver_refused_spans[10m])) or vector(0))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # Refused spans mean the memory limiter is shedding load; failed exports mean
+        # Tempo or R2 is not accepting traces.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Collectorul OpenTelemetry refuză span-uri sau nu le poate exporta către Tempo.'
+          __dashboardUid__: calculatorgaz-production
+          __panelId__: "8"
+        labels:
+          severity: warning
+
+      - uid: calculatorgaz-tls-expiry
+        title: CalculatorGaz public TLS certificate expiring
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(probe_ssl_earliest_cert_expiry{monitor="public-edge"} - time()) / 86400'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [14] }
+              refId: B
+        # Cloudflare renews edge certificates automatically; this catches a stuck
+        # renewal or a custom certificate that was forgotten.
+        noDataState: OK
+        execErrState: Alerting
+        for: 1h
+        annotations:
+          summary: 'Certificatul TLS public CalculatorGaz expiră în mai puțin de 14 zile.'
+          __dashboardUid__: calculatorgaz-production
+          __panelId__: "24"
+        labels:
+          severity: warning
+
+      - uid: calculatorgaz-error-rate
+        title: CalculatorGaz server error rate above 5%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(sum(rate(traces_spanmetrics_calls_total{service_name="calculatorgaz",span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR"}[10m])) or vector(0)) / (sum(rate(traces_spanmetrics_calls_total{service_name="calculatorgaz",span_kind="SPAN_KIND_SERVER"}[10m])) > 0.01)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.05] }
+              refId: B
+        # Computed from every server span before sampling. The denominator requires
+        # at least ~6 requests per 10 minutes so a single error at night is not 100%.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Peste 5% din cererile CalculatorGaz se termină cu eroare de cel puțin 10 minute.'
+          __dashboardUid__: calculatorgaz-traces
+          __panelId__: "3"
+        labels:
+          severity: warning
+
+  - orgId: 1
+    name: Kubernetes
+    folder: Cluster
+    interval: 2m
+    rules:
+      - uid: k8s-container-waiting-error
+        title: Container cannot start (crash loop / image / config error)
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(max by (namespace, pod, container, reason) (kube_pod_container_status_waiting_reason{reason=~"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|CreateContainerError|InvalidImageName"}), "service", "$1", "pod", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Containerul {{ $labels.container }} din {{ $labels.namespace }}/{{ $labels.service }} nu pornește de peste 5 minute: {{ $labels.reason }}.'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "5"
+        labels:
+          severity: critical
+
+      - uid: k8s-pod-not-ready
+        title: Pod running but not ready
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(max by (namespace, pod) (kube_pod_status_ready{condition="false"} == 1 and on (namespace, pod) (kube_pod_status_phase{phase="Running"} == 1)), "service", "$1", "pod", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Podul {{ $labels.namespace }}/{{ $labels.service }} rulează, dar nu este ready de peste 10 minute (probă de readiness eșuată).'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "6"
+        labels:
+          severity: warning
+
+      - uid: k8s-pod-stuck-pending
+        title: Pod stuck in Pending or Unknown
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(max by (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown"} == 1), "service", "$1", "pod", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Podul {{ $labels.namespace }}/{{ $labels.service }} este în Pending/Unknown de peste 15 minute (resurse, volum sau planificare).'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "6"
+        labels:
+          severity: warning
+
+      - uid: k8s-job-failed
+        title: Kubernetes Job failed
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(max by (namespace, job_name) (kube_job_status_failed), "service", "$1", "job_name", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Jobul {{ $labels.namespace }}/{{ $labels.service }} a eșuat (ex. migrarea bazei de date).'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "5"
+        labels:
+          severity: warning
+
+      - uid: k8s-node-pressure
+        title: Kubernetes node under resource pressure
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'kube_node_status_condition{condition=~"MemoryPressure|DiskPressure|PIDPressure",status="true"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Nodul {{ $labels.node }} raportează {{ $labels.condition }}; kubelet poate începe să evacueze poduri.'
+          __dashboardUid__: cluster-operations
+          __panelId__: "1"
+        labels:
+          severity: critical
+
+      - uid: k8s-node-memory-requests-high
+        title: Node memory requests close to allocatable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * sum by (node) (kube_pod_container_resource_requests{resource="memory"}) / sum by (node) (kube_node_status_allocatable{resource="memory"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Request-urile de memorie de pe nodul {{ $labels.node }} depășesc 90% din memoria alocabilă; podurile noi pot rămâne în Pending.'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "12"
+        labels:
+          severity: warning
+
+      - uid: k8s-pvc-not-bound
+        title: PersistentVolumeClaim not bound
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(kube_persistentvolumeclaim_status_phase{phase=~"Pending|Lost"} == 1, "service", "$1", "persistentvolumeclaim", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Volumul {{ $labels.namespace }}/{{ $labels.service }} nu este legat ({{ $labels.phase }}) de peste 15 minute; podul care îl folosește nu pornește.'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "11"
+        labels:
+          severity: critical
+
+      - uid: k8s-pvc-usage-high
+        title: Volume usage over 85%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(100 * kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes, "service", "$1", "persistentvolumeclaim", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Volumul {{ $labels.namespace }}/{{ $labels.service }} este plin peste 85%.'
+          __dashboardUid__: k8s-workloads
+          __panelId__: "11"
+        labels:
+          severity: warning
+
+      - uid: k8s-apiserver-errors
+        title: Kubernetes API server returning 5xx
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * sum(rate(apiserver_request_total{code=~"5.."}[5m])) / sum(rate(apiserver_request_total[5m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Peste 5% din cererile către API server-ul Kubernetes eșuează cu 5xx de 10 minute.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "2"
+        labels:
+          severity: critical
+
+      - uid: k8s-apiserver-slow
+        title: Kubernetes API server slow
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'histogram_quantile(0.99, sum by (le) (rate(apiserver_request_duration_seconds_bucket{verb!~"WATCH|CONNECT"}[5m])))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Latența p99 a API server-ului Kubernetes depășește 1 secundă de 10 minute.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "3"
+        labels:
+          severity: warning
+
+      - uid: k8s-coredns-servfail
+        title: CoreDNS returning SERVFAIL
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[5m])) / sum(rate(coredns_dns_responses_total[5m]))'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [5] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Peste 5% din răspunsurile CoreDNS sunt SERVFAIL de 10 minute; rezolvarea numelor din cluster sau din amonte nu funcționează.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "5"
+        labels:
+          severity: warning
+
+      - uid: argocd-app-out-of-sync
+        title: Argo CD application out of sync
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(argocd_app_info{sync_status!="Synced"}, "service", "$1", "name", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Aplicația Argo CD {{ $labels.service }} ({{ $labels.dest_namespace }}) este {{ $labels.sync_status }} de peste 15 minute.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "7"
+        labels:
+          severity: warning
+
+      - uid: argocd-app-unhealthy
+        title: Argo CD application unhealthy
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(argocd_app_info{health_status!~"Healthy|Progressing"}, "service", "$1", "name", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Aplicația Argo CD {{ $labels.service }} ({{ $labels.dest_namespace }}) are starea de sănătate {{ $labels.health_status }}.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "7"
+        labels:
+          severity: critical
+
+      - uid: argocd-git-unreachable
+        title: Argo CD cannot reach Git
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'label_replace(sum by (repo) (increase(argocd_git_lsremote_fail_total[15m])), "service", "$1", "repo", "(.*)")'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 0s
+        annotations:
+          summary: 'Argo CD nu poate citi repo-ul {{ $labels.service }} (peste 3 eșecuri în 15 minute); sincronizarea nu pornește.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "8"
+        labels:
+          severity: warning
+
+      - uid: public-endpoint-down
+        title: Public infrastructure endpoint unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'probe_success{monitor="public-edge-infra"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Endpointul public {{ $labels.instance }} nu răspunde prin Cloudflare Tunnel.'
+          __dashboardUid__: k8s-control-plane
+          __panelId__: "10"
+        labels:
+          severity: critical
+
+  - orgId: 1
+    name: Proxmox
+    folder: Proxmox
+    interval: 2m
+    rules:
+      - uid: proxmox-node-exporter-down
+        title: Proxmox host metrics unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'up{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # Prometheus păstrează seria `up=0` pentru un exporter Proxmox căzut,
+        # iar pragul `< 1` pornește pe această valoare.
+        # Lipsa totală de date apare și în timpul restartului Prometheus, deci
+        # nu trebuie să declanșeze un incident fals de host.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Nu mai pot colecta metrici de bază de pe hostul Proxmox; verifică hostul și node_exporter.
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "16"
+        labels:
+          severity: critical
+
+      - uid: proxmox-guests-exporter-down
+        title: Proxmox guest metrics unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'up{job="proxmox-guests"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # Ca mai sus: un exporter inaccesibil produce `up=0`; un restart al
+        # monitorizării nu trebuie să fie raportat ca incident Proxmox.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Metricile VM/container Proxmox nu mai sunt disponibile; hostul poate fi funcțional, dar vizibilitatea asupra invitaților lipsește.
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "16"
+        labels:
+          severity: warning
+
+      - uid: proxmox-guest-stopped
+        title: Proxmox guest stopped unexpectedly
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'pve_up{id=~"(qemu|lxc)/.*"} * on(id) group_left(name) pve_guest_info{template="0"} and on(id) (max_over_time(pve_up{id=~"(qemu|lxc)/.*"}[1h]) > 0)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # Fires for a VM/container that was running within the last hour and is now
+        # stopped. After an hour it resolves by itself, so guests that are stopped on
+        # purpose (desktop, k3s, templates) do not keep an alert open.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Invitatul Proxmox {{ $labels.name }} ({{ $labels.id }}) s-a oprit în ultima oră.'
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "15"
+        labels:
+          severity: critical
+
+      - uid: proxmox-node-offline
+        title: Proxmox node offline in the cluster view
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'pve_up{id=~"node/.*"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # The exporter answers but the Proxmox API reports the node as offline.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Proxmox raportează nodul {{ $labels.id }} ca offline, deși exporterul răspunde.'
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "1"
+        labels:
+          severity: critical
+
+      - uid: proxmox-storage-usage
+        title: Proxmox storage above 85%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * pve_disk_usage_bytes{id=~"storage/.*"} / pve_disk_size_bytes{id=~"storage/.*"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+              refId: B
+        # Covers local (dir) and local-lvm (thin pool). A full thin pool corrupts
+        # guest disks, so this is critical.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Storage-ul Proxmox {{ $labels.id }} este peste 85% ocupat.'
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "7"
+        labels:
+          severity: critical
+
+      - uid: proxmox-disk-io-saturated
+        title: Proxmox physical disk saturated
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * rate(node_disk_io_time_seconds_total{job="proxmox-node",device=~"sd[a-z]+|nvme[0-9]+n[0-9]+"}[10m])'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+              refId: B
+        # All guests share one spinning disk. Above 90% busy for a quarter of an
+        # hour, every VM slows down together.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Discul fizic {{ $labels.device }} al hostului Proxmox este ocupat peste 90% de 15 minute; toate VM-urile încetinesc.'
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "8"
+        labels:
+          severity: warning
+
+      - uid: proxmox-host-temperature
+        title: Proxmox CPU temperature above 85C
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'max by (instance) (node_hwmon_temp_celsius{job="proxmox-node",chip="platform_coretemp_0"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [85] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Procesorul hostului Proxmox depășește 85 °C de cel puțin 10 minute.'
+          __dashboardUid__: proxmox-storage-guests
+          __panelId__: "6"
+        labels:
+          severity: warning
+
+      - uid: proxmox-smart-unhealthy
+        title: Proxmox disk SMART health failed
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'smartmon_device_smart_healthy{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        # The drive itself reports that it is failing. Back up what matters now.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Discul {{ $labels.disk }} al hostului Proxmox raportează SMART defect; discul poate ceda.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "1"
+        labels:
+          severity: critical
+
+      - uid: proxmox-smart-bad-sectors
+        title: Proxmox disk has bad sectors
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'sum by (disk, instance) ({__name__=~"smartmon_(reallocated_sector_ct|current_pending_sector|offline_uncorrectable)_raw_value",job="proxmox-node"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # Reallocated, pending or offline-uncorrectable sectors: the surface is wearing
+        # out. All guests live on this one disk.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: 'Discul {{ $labels.disk }} are sectoare defecte (realocate, în așteptare sau necorectabile).'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "7"
+        labels:
+          severity: critical
+
+      - uid: proxmox-smart-errors-growing
+        title: Proxmox disk read errors increasing
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'increase({__name__=~"smartmon_(reported_uncorrect|udma_crc_error_count)_raw_value",job="proxmox-node"}[24h])'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # The drive already logged 2 uncorrectable errors, so this only fires when the
+        # count rises (or CRC errors appear, which points at the cable/controller).
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'Discul {{ $labels.disk }} a raportat erori noi în ultimele 24 de ore (atribut SMART {{ $labels.smart_id }}).'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "7"
+        labels:
+          severity: warning
+
+      - uid: proxmox-smart-disk-temperature
+        title: Proxmox disk temperature above 50C
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'smartmon_temperature_celsius_raw_value{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [50] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Discul {{ $labels.disk }} depășește 50 °C de cel puțin 15 minute.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "8"
+        labels:
+          severity: warning
+
+      - uid: proxmox-smart-data-stale
+        title: Proxmox SMART data not updating
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'time() - smartmon_smartctl_run{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3600] }
+              refId: B
+        # The smartmon timer runs every ~15 minutes. If the data is over an hour old,
+        # the SMART alerts above are looking at a stale picture.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Datele SMART de pe hostul Proxmox nu s-au mai actualizat de peste o oră; verifică timerul prometheus-node-exporter-smartmon.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "1"
+        labels:
+          severity: warning
+
+  - orgId: 1
+    name: Infrastructure and backups
+    folder: Infrastructure
+    interval: 2m
+    rules:
+      - uid: runner-disk-warning
+        title: Runner disk above 80%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * (1 - node_filesystem_avail_bytes{job="runner",fstype!~"tmpfs|ramfs|overlay|squashfs"} / node_filesystem_size_bytes{job="runner",fstype!~"tmpfs|ramfs|overlay|squashfs"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [80] }
+              refId: B
+        # Avertisment timpuriu; alerta critică la 90% este regula de mai jos.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Discul runnerului (192.168.1.35), montarea {{ $labels.mountpoint }}, a trecut de 80%; curăță imaginile și cache-ul Docker înainte să ajungă la 90%.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "2"
+        labels:
+          severity: warning
+
+      - uid: runner-disk-critical
+        title: Runner disk above 90%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '100 * (1 - node_filesystem_avail_bytes{job="runner",fstype!~"tmpfs|ramfs|overlay|squashfs"} / node_filesystem_size_bytes{job="runner",fstype!~"tmpfs|ramfs|overlay|squashfs"})'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [90] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Discul runnerului (192.168.1.35), montarea {{ $labels.mountpoint }}, a trecut de 90%; job-urile CI vor începe să eșueze. Curăță imaginile și cache-ul Docker (docker system prune) sau mărește discul.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "2"
+        labels:
+          severity: critical
+
+      - uid: backup-r2-stale
+        title: No pgBackRest backup in R2 for 26 hours
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'time() - pgbackrest_last_backup_any_timestamp_seconds'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [93600] }
+              refId: B
+        # Metrica există doar pe serverul primar, deci regula nu se aplică replicii.
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Ultimul backup pgBackRest din R2 are peste 26 de ore pe {{ $labels.host }}; verifică pgbackrest-backup.service și accesul la R2.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "13"
+        labels:
+          severity: critical
+
+      - uid: backup-r2-full-stale
+        title: No full pgBackRest backup in R2 for 8 days
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'time() - pgbackrest_last_backup_timestamp_seconds{type="full"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [691200] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Ultimul backup full pgBackRest are peste 8 zile (se face duminică); incrementalele nu se pot restaura fără un full recent.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "14"
+        labels:
+          severity: critical
+
+      - uid: backup-r2-repository-unreadable
+        title: Cannot read the pgBackRest repository in R2
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(pg_backup_is_primary == 1) and on(instance) (pgbackrest_enabled == 1) unless on(instance) pgbackrest_last_backup_any_timestamp_seconds'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # Pornește când primarul are arhivarea activă, dar lipsesc metricile repository-ului (R2 inaccesibil, stanza lipsă, scriptul oprit).
+        noDataState: OK
+        execErrState: Alerting
+        for: 30m
+        annotations:
+          summary: Primarul {{ $labels.host }} nu poate citi repository-ul pgBackRest din R2 sau nu are niciun backup; verifică cheile R2, parola de criptare și stanza.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "13"
+        labels:
+          severity: critical
+
+      - uid: backup-dump-stale
+        title: No successful logical dump to R2 for 26 hours
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(pg_backup_is_primary == 1) unless on(instance) (backup_last_success_timestamp_seconds{backup="pg_dump"} > time() - 93600)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # Se aplică doar primarului; lipsa metricii (script nepornit niciodată) pornește și ea alerta.
+        noDataState: OK
+        execErrState: Alerting
+        for: 30m
+        annotations:
+          summary: Primarul {{ $labels.host }} nu a încărcat niciun dump pg_dump în R2 în ultimele 26 de ore; verifică pg-backup.service.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "15"
+        labels:
+          severity: critical
+
+      - uid: backup-last-run-failed
+        title: Last backup run failed
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'backup_last_run_success == 0 and on(instance) pg_backup_is_primary == 1'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [1] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Ultima rulare {{ $labels.backup }} a eșuat pe {{ $labels.host }}; vezi journalctl -u pg-backup.service / pgbackrest-backup.service.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "16"
+        labels:
+          severity: critical
+
+      - uid: wal-archive-failing
+        title: PostgreSQL WAL archiving to R2 is failing
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: '(pg_archiver_last_failed_timestamp_seconds > pg_archiver_last_archived_timestamp_seconds) and (time() - pg_archiver_last_failed_timestamp_seconds < 3600)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          summary: Arhivarea WAL către R2 eșuează pe {{ $labels.host }}; fișierele WAL se acumulează în pg_wal și pot umple discul. Verifică accesul la R2 și pgbackrest check.
+          __dashboardUid__: infra-runner-backups
+          __panelId__: "17"
+        labels:
+          severity: critical
+
+  - orgId: 1
+    name: PostgreSQL internals
+    folder: Infrastructure
+    interval: 1m
+    rules:
+    - uid: postgres-connections-warning
+      title: PostgreSQL connections above 80%
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: 100 * pg_internal_connections{job="postgres-internal"} / pg_internal_connection_limit{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 80
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 10m
+      annotations:
+        summary: Conexiunile pe {{ $labels.host }} depășesc 80% din sloturile disponibile
+          rolurilor obișnuite. Verifică pool-urile aplicațiilor și sesiunile idle.
+        __dashboardUid__: postgres-internals
+        __panelId__: '2'
+      labels:
+        severity: warning
+    - uid: postgres-connections-critical
+      title: PostgreSQL connections above 90%
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: 100 * pg_internal_connections{job="postgres-internal"} / pg_internal_connection_limit{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 90
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 5m
+      annotations:
+        summary: Conexiunile pe {{ $labels.host }} depășesc 90%; aplicațiile pot rămâne
+          fără conexiuni. Verifică pg_stat_activity și limitele pool-urilor.
+        __dashboardUid__: postgres-internals
+        __panelId__: '2'
+      labels:
+        severity: critical
+    - uid: postgres-long-transaction
+      title: PostgreSQL transaction older than 5 minutes
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: pg_internal_oldest_transaction_seconds{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 300
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 5m
+      annotations:
+        summary: Tranzacție veche pe {{ $labels.host }}, baza {{ $labels.database }},
+          stare {{ $labels.state }}. Verifică xact_start în pg_stat_activity; tranzacțiile
+          idle pot bloca vacuum.
+        __dashboardUid__: postgres-internals
+        __panelId__: '4'
+      labels:
+        severity: warning
+    - uid: postgres-lock-wait
+      title: PostgreSQL lock wait above 60 seconds
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: pg_internal_oldest_lock_wait_seconds{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 60
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 2m
+      annotations:
+        summary: O sesiune așteaptă un lock de peste 60s pe {{ $labels.host }}, baza
+          {{ $labels.database }}. Identifică blocantul cu pg_blocking_pids(pid) înainte
+          de intervenție.
+        __dashboardUid__: postgres-internals
+        __panelId__: '6'
+      labels:
+        severity: warning
+    - uid: postgres-deadlocks
+      title: PostgreSQL deadlocks detected
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: increase(pg_internal_deadlocks_total{job="postgres-internal"}[10m])
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 0
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 0s
+      annotations:
+        summary: Deadlock detectat pe {{ $labels.host }}, baza {{ $labels.database }},
+          în ultimele 10 minute. Verifică logurile PostgreSQL și ordinea actualizărilor
+          din tranzacții.
+        __dashboardUid__: postgres-internals
+        __panelId__: '7'
+      labels:
+        severity: warning
+    - uid: postgres-replica-disconnected
+      title: PostgreSQL primary has no streaming replica
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: (pg_internal_primary{job="postgres-internal"} == 1) and on(instance)
+            (pg_internal_streaming_replicas{job="postgres-internal"} < 1)
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 0
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 5m
+      annotations:
+        summary: 'Primarul {{ $labels.host }} nu are nicio replică streaming. Verifică
+          serverul replică, rețeaua și pg_stat_replication. Topologia așteptată: un
+          primar și o replică.'
+        __dashboardUid__: postgres-internals
+        __panelId__: '8'
+      labels:
+        severity: critical
+    - uid: postgres-wal-receiver-down
+      title: PostgreSQL standby WAL receiver disconnected
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: (1 - pg_internal_primary{job="postgres-internal"}) and on(instance)
+            (pg_internal_wal_receiver_streaming{job="postgres-internal"} < 1)
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 0
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 5m
+      annotations:
+        summary: Replica {{ $labels.host }} nu are WAL receiver streaming. Verifică
+          pg_stat_wal_receiver, primary_conninfo și accesul la primar.
+        __dashboardUid__: postgres-internals
+        __panelId__: '8'
+      labels:
+        severity: critical
+    - uid: postgres-replication-lag
+      title: PostgreSQL replication lag above 64 MiB
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: pg_internal_replication_replay_lag_bytes{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 67108864
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 5m
+      annotations:
+        summary: Replica {{ $labels.application_name }} / {{ $labels.client_addr }}
+          a primarului {{ $labels.host }} are peste 64 MiB WAL de aplicat. Verifică
+          I/O și starea replicii.
+        __dashboardUid__: postgres-internals
+        __panelId__: '9'
+      labels:
+        severity: warning
+    - uid: postgres-slot-retained-wal
+      title: PostgreSQL slot retains more than 1 GiB WAL
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: pg_internal_slot_retained_wal_bytes{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 1073741824
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 10m
+      annotations:
+        summary: Slotul {{ $labels.slot_name }} pe {{ $labels.host }} reține peste 1
+          GiB WAL. Verifică consumatorul, spațiul pg_wal și max_slot_wal_keep_size;
+          nu șterge slotul fără verificare.
+        __dashboardUid__: postgres-internals
+        __panelId__: '11'
+      labels:
+        severity: warning
+    - uid: postgres-slot-lost
+      title: PostgreSQL replication slot lost required WAL
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: pg_internal_slot_lost{job="postgres-internal"}
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 0
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 1m
+      annotations:
+        summary: Slotul {{ $labels.slot_name }} pe {{ $labels.host }} are wal_status=lost.
+          WAL necesar a fost eliminat; verifică dacă replica sau consumatorul trebuie
+          reinițializat.
+        __dashboardUid__: postgres-internals
+        __panelId__: '13'
+      labels:
+        severity: critical
+    - uid: postgres-metrics-missing-postgress
+      title: PostgreSQL internal metrics missing — postgress
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: absent_over_time(pg_internal_primary{job="postgres-internal",host="postgress"}[5m])
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 0
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 2m
+      annotations:
+        summary: Metricile interne PostgreSQL lipsesc pentru postgress. Verifică SQL
+          Exporter, secretul postgres-monitoring, rolul și pg_hba.conf.
+        __dashboardUid__: postgres-internals
+        __panelId__: '1'
+      labels:
+        severity: warning
+    - uid: postgres-metrics-missing-postgress-1
+      title: PostgreSQL internal metrics missing — postgress-1
+      condition: B
+      data:
+      - refId: A
+        relativeTimeRange:
+          from: 300
+          to: 0
+        datasourceUid: prometheus
+        model:
+          editorMode: code
+          expr: absent_over_time(pg_internal_primary{job="postgres-internal",host="postgress-1"}[5m])
+          instant: true
+          intervalMs: 1000
+          maxDataPoints: 43200
+          refId: A
+      - refId: B
+        relativeTimeRange:
+          from: 0
+          to: 0
+        datasourceUid: __expr__
+        model:
+          type: threshold
+          datasource:
+            type: __expr__
+            uid: __expr__
+          expression: A
+          conditions:
+          - evaluator:
+              type: gt
+              params:
+              - 0
+          refId: B
+      noDataState: OK
+      execErrState: Alerting
+      for: 2m
+      annotations:
+        summary: Metricile interne PostgreSQL lipsesc pentru postgress-1. Verifică SQL
+          Exporter, secretul postgres-monitoring, rolul și pg_hba.conf.
+        __dashboardUid__: postgres-internals
+        __panelId__: '1'
+      labels:
+        severity: warning

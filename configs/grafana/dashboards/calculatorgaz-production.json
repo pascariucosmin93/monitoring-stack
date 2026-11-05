@@ -1,0 +1,232 @@
+{
+  "uid": "calculatorgaz-production",
+  "title": "CalculatorGaz · Production",
+  "tags": ["calculatorgaz", "production", "gaz"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Disponibilitate /api/health",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "probe_success{application=\"calculatorgaz\",job=\"blackbox\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "HTTP status",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "probe_http_status_code{application=\"calculatorgaz\",job=\"blackbox\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 200 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "title": "Timp răspuns health",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "1000 * probe_duration_seconds{application=\"calculatorgaz\",job=\"blackbox\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000 }, { "color": "red", "value": 3000 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "id": 4,
+      "title": "Probe-uri reușite",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "avg_over_time(probe_success{application=\"calculatorgaz\",job=\"blackbox\"}[24h]) * 100", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 95 }, { "color": "green", "value": 99.5 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "id": 5,
+      "title": "Timp de răspuns în timp",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "1000 * probe_duration_seconds{application=\"calculatorgaz\",job=\"blackbox\"}", "legendFormat": "health intern", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 7 }
+    },
+    {
+      "id": 6,
+      "title": "Stare probe HTTP",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "probe_success{application=\"calculatorgaz\",job=\"blackbox\"}", "legendFormat": "health intern", "refId": "A" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 7 }
+    },
+    {
+      "id": 7,
+      "title": "Trace-uri primite de Collector",
+      "description": "Va afișa trafic după instrumentarea OpenTelemetry a aplicației.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate(otelcol_receiver_accepted_spans[5m]))", "legendFormat": "spans/s", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 8,
+      "title": "Erori export trace-uri",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate(otelcol_exporter_send_failed_spans[5m]))", "legendFormat": "failed spans/s", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+    },
+    {
+      "id": 9,
+      "title": "Metrici business disponibile",
+      "description": "0 indică faptul că exporterul privat nu poate citi metricile aplicației.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "up{job=\"calculatorgaz-business\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 24 }
+    },
+    {
+      "id": 10,
+      "title": "Utilizatori activi (24 h)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_active_users_24h", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 24 }
+    },
+    {
+      "id": 11,
+      "title": "Citiri introduse (24 h)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_readings_24h", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 24 }
+    },
+    {
+      "id": 12,
+      "title": "Facturi încărcate (luna curentă)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_invoice_uploads_month", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 24 }
+    },
+    {
+      "id": 13,
+      "title": "Activitate CalculatorGaz",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "calculatorgaz_readings_24h", "legendFormat": "citiri / 24h", "refId": "A" },
+        { "expr": "calculatorgaz_active_users_24h", "legendFormat": "utilizatori activi / 24h", "refId": "B" },
+        { "expr": "calculatorgaz_unread_notifications", "legendFormat": "notificări necitite", "refId": "C" }
+      ],
+      "fieldConfig": { "defaults": { "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 31 }
+    },
+    {
+      "id": 14,
+      "title": "Logări reușite (ultimele 24 h)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_login_successes_24h", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 40 }
+    },
+    {
+      "id": 15,
+      "title": "Logări eșuate (ultimele 24 h)",
+      "description": "Include parole greșite și autentificări care nu au putut finaliza sesiunea; nu conține identități sau parole.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_login_failures_24h", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 3 }, { "color": "red", "value": 10 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 40 }
+    },
+    {
+      "id": 16,
+      "title": "Disponibilitate publică prin Cloudflare",
+      "description": "Verifică DNS, TLS, Cloudflare Tunnel și endpointul public /api/health.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "probe_success{application=\"calculatorgaz\",monitor=\"public-edge\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 47 }
+    },
+    {
+      "id": 17,
+      "title": "Timp răspuns public prin Cloudflare",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "1000 * probe_duration_seconds{application=\"calculatorgaz\",monitor=\"public-edge\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1000 }, { "color": "red", "value": 3000 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 47 }
+    },
+    {
+      "id": 18,
+      "title": "PostgreSQL (baza aplicației)",
+      "description": "Ping SQL autentificat din aplicație către PostgreSQL on-prem (postgress.cosmin.home).",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_dependency_up{dependency=\"postgresql\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 16, "x": 0, "y": 54 }
+    },
+    {
+      "id": 20,
+      "title": "Latență PostgreSQL",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "1000 * calculatorgaz_dependency_latency_seconds", "legendFormat": "{{dependency}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 500 }, { "color": "red", "value": 2000 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 54 }
+    },
+    {
+      "id": 21,
+      "title": "Backup PostgreSQL (pgBackRest → R2)",
+      "description": "Starea backup-ului pgBackRest: stanza sănătoasă și repository-ul R2 citibil.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "max(pgbackrest_info_success{job=\"postgres-hosts\"} * (pgbackrest_stanza_status_code{job=\"postgres-hosts\"} == bool 0))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "FAILED", "color": "red" }, "1": { "text": "OK", "color": "green" } } }], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 61 }
+    },
+    {
+      "id": 22,
+      "title": "Vârsta ultimului backup",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "time() - max(pgbackrest_last_backup_any_timestamp_seconds{job=\"postgres-hosts\"})", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 93600 }, { "color": "red", "value": 172800 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 61 }
+    },
+    {
+      "id": 23,
+      "title": "Tichete suport după stare",
+      "description": "Numărul curent de conversații: open, progress și done.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "calculatorgaz_support_tickets", "legendFormat": "{{status}}", "refId": "A" }],
+      "options": { "orientation": "horizontal", "reduceOptions": { "values": false, "calcs": ["lastNotNull"], "fields": "" }, "textMode": "auto", "colorMode": "value", "graphMode": "none", "justifyMode": "auto" },
+      "fieldConfig": { "defaults": { "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 10 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 68 }
+    },
+    {
+      "id": 24,
+      "title": "Certificat TLS public — zile rămase",
+      "description": "Zile până la expirarea certificatului văzut de probe-ul public. Alerta pornește sub 14 zile.",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "(probe_ssl_earliest_cert_expiry{monitor=\"public-edge\"} - time()) / 86400", "legendFormat": "{{instance}}", "refId": "A" }],
+      "fieldConfig": { "defaults": {"unit": "d", "min": 0}, "overrides": [] },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 75 }
+    }
+  ]
+}

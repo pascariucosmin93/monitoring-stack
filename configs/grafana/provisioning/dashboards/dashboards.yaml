@@ -1,0 +1,38 @@
+apiVersion: 1
+providers:
+  - name: Cluster
+    orgId: 1
+    folder: Cluster
+    type: file
+    disableDeletion: false
+    # Allow edits and Save from Grafana's UI. New dashboards are also kept in
+    # Grafana's database; a file-backed dashboard is overwritten only if its
+    # JSON changes in a later deployment.
+    allowUiUpdates: true
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
+
+  # Proxmox has its own folder so that "Cluster" only holds what belongs to the
+  # Kubernetes cluster. Files live in a separate directory because one provider
+  # maps one directory to one folder.
+  - name: Proxmox
+    orgId: 1
+    folder: Proxmox
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards-proxmox
+
+  # Servere din afara clusterului (runner Gitea, PostgreSQL) și backup-urile lor.
+  - name: Infrastructure
+    orgId: 1
+    folder: Infrastructure
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards-infra

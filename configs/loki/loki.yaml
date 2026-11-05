@@ -1,0 +1,64 @@
+# Single-binary Loki is deliberately used here: CalculatorGaz has a small
+# workload, while R2 supplies durable storage for both chunks and TSDB indexes.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: "2026-09-28"
+      store: tsdb
+      object_store: s3
+      schema: v13
+      index:
+        prefix: loki_index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/index
+    cache_location: /loki/index_cache
+    cache_ttl: 24h
+  aws:
+    bucketnames: ${LOKI_R2_BUCKET}
+    endpoint: ${LOKI_R2_ENDPOINT}
+    region: auto
+    access_key_id: ${LOKI_R2_ACCESS_KEY}
+    secret_access_key: ${LOKI_R2_SECRET_KEY}
+    insecure: false
+    s3forcepathstyle: true
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 10
+  delete_request_store: s3
+
+# Thirty days keeps incident investigation useful without turning application
+# logs into an unbounded archive. R2 lifecycle may be set to 35 days as a
+# secondary safeguard, but Loki itself owns normal retention/deletion.
+limits_config:
+  retention_period: 720h
+  max_query_lookback: 720h
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+  max_global_streams_per_user: 5000
+  max_entries_limit_per_query: 5000
+  max_query_series: 500
+  max_query_length: 720h
+  max_line_size: 256KB
+  max_line_size_truncate: true
+  allow_structured_metadata: false
+
+analytics:
+  reporting_enabled: false

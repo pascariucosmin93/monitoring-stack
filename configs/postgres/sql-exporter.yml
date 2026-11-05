@@ -1,0 +1,157 @@
+# PostgreSQL 18+. DSN overridden by SQLEXPORTER_TARGET_DSN from a Secret.
+# No target.name: a failed SQL collection returns HTTP 500 and Prometheus up=0.
+global:
+  scrape_timeout: 8s
+  scrape_timeout_offset: 500ms
+  max_connections: 2
+  max_idle_connections: 2
+target:
+  data_source_name: postgresql://localhost:5432/postgres?sslmode=require
+  collectors:
+  - postgres_internal
+collectors:
+- collector_name: postgres_internal
+  metrics:
+  - metric_name: pg_internal_primary
+    type: gauge
+    help: 1 on a primary, 0 on a standby.
+    values:
+    - value
+    query: SELECT (NOT pg_is_in_recovery())::int AS value
+  - metric_name: pg_internal_connections
+    type: gauge
+    help: Client backend connections, including idle sessions.
+    values:
+    - value
+    query: SELECT count(*) AS value FROM pg_stat_activity WHERE backend_type = 'client
+      backend'
+  - metric_name: pg_internal_connection_limit
+    type: gauge
+    help: Connection slots available to ordinary roles (reserved slots excluded).
+    values:
+    - value
+    query: SELECT current_setting('max_connections')::int - current_setting('superuser_reserved_connections')::int
+      - current_setting('reserved_connections')::int AS value
+  - metric_name: pg_internal_oldest_transaction_seconds
+    type: gauge
+    help: Age of the oldest client transaction by database and state; zero if none.
+    values:
+    - value
+    query: |-
+      SELECT d.datname AS database, s.state,
+             COALESCE(max(EXTRACT(EPOCH FROM clock_timestamp() - a.xact_start)), 0) AS value
+      FROM pg_database d
+      CROSS JOIN (VALUES ('active'), ('idle in transaction'), ('idle in transaction (aborted)')) s(state)
+      LEFT JOIN pg_stat_activity a ON a.datid = d.oid AND a.state = s.state
+        AND a.backend_type = 'client backend' AND a.pid <> pg_backend_pid()
+        AND a.application_name IS DISTINCT FROM 'observability-postgres'
+      WHERE d.datallowconn AND NOT d.datistemplate
+      GROUP BY d.datname, s.state
+    key_labels:
+    - database
+    - state
+  - metric_name: pg_internal_blocked_sessions
+    type: gauge
+    help: Client sessions waiting for a lock, per database.
+    values:
+    - value
+    query: |-
+      SELECT d.datname AS database, count(a.pid) AS value
+      FROM pg_database d LEFT JOIN pg_stat_activity a ON a.datid = d.oid
+        AND a.wait_event_type = 'Lock' AND a.backend_type = 'client backend'
+      WHERE d.datallowconn AND NOT d.datistemplate GROUP BY d.datname
+    key_labels:
+    - database
+  - metric_name: pg_internal_oldest_lock_wait_seconds
+    type: gauge
+    help: Actual oldest lock wait (pg_locks.waitstart), per database.
+    values:
+    - value
+    query: |-
+      SELECT d.datname AS database,
+             COALESCE(max(EXTRACT(EPOCH FROM clock_timestamp() - l.waitstart)), 0) AS value
+      FROM pg_database d LEFT JOIN pg_stat_activity a ON a.datid = d.oid
+        AND a.backend_type = 'client backend'
+      LEFT JOIN pg_locks l ON l.pid = a.pid AND NOT l.granted
+      WHERE d.datallowconn AND NOT d.datistemplate GROUP BY d.datname
+    key_labels:
+    - database
+  - metric_name: pg_internal_deadlocks_total
+    type: counter
+    help: Deadlocks detected per database; resets with PostgreSQL statistics.
+    values:
+    - value
+    query: SELECT datname AS database, deadlocks AS value FROM pg_stat_database WHERE
+      datname IS NOT NULL
+    key_labels:
+    - database
+  - metric_name: pg_internal_streaming_replicas
+    type: gauge
+    help: Number of WAL sender connections in streaming state.
+    values:
+    - value
+    query: SELECT count(*) AS value FROM pg_stat_replication WHERE state = 'streaming'
+  - metric_name: pg_internal_wal_receiver_streaming
+    type: gauge
+    help: Number of streaming WAL receivers (standbys only; zero on primary).
+    values:
+    - value
+    query: SELECT count(*) AS value FROM pg_stat_wal_receiver WHERE status = 'streaming'
+  - metric_name: pg_internal_replication_replay_lag_bytes
+    type: gauge
+    help: WAL bytes not replayed by each connected standby (primary only).
+    values:
+    - value
+    query: |-
+      SELECT application_name, COALESCE(client_addr::text, 'local') AS client_addr,
+             GREATEST(COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn), 0), 0) AS value
+      FROM pg_stat_replication WHERE NOT pg_is_in_recovery()
+    key_labels:
+    - application_name
+    - client_addr
+  - metric_name: pg_internal_replication_replay_lag_seconds
+    type: gauge
+    help: Reported replay lag; zero when PostgreSQL reports NULL (e.g. caught up and
+      idle).
+    values:
+    - value
+    query: |-
+      SELECT application_name, COALESCE(client_addr::text, 'local') AS client_addr,
+             COALESCE(EXTRACT(EPOCH FROM replay_lag), 0) AS value
+      FROM pg_stat_replication WHERE NOT pg_is_in_recovery()
+    key_labels:
+    - application_name
+    - client_addr
+  - metric_name: pg_internal_slot_retained_wal_bytes
+    type: gauge
+    help: WAL retained since restart_lsn per slot; zero if restart_lsn is NULL.
+    values:
+    - value
+    query: |-
+      SELECT slot_name, slot_type,
+             GREATEST(COALESCE(pg_wal_lsn_diff(
+               CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END,
+               restart_lsn), 0), 0) AS value
+      FROM pg_replication_slots
+    key_labels:
+    - slot_name
+    - slot_type
+  - metric_name: pg_internal_slot_active
+    type: gauge
+    help: Whether a replication slot is currently active.
+    values:
+    - value
+    query: SELECT slot_name, slot_type, active::int AS value FROM pg_replication_slots
+    key_labels:
+    - slot_name
+    - slot_type
+  - metric_name: pg_internal_slot_lost
+    type: gauge
+    help: 1 if WAL needed by a slot has been removed (wal_status=lost).
+    values:
+    - value
+    query: SELECT slot_name, slot_type, (COALESCE(wal_status, '') = 'lost')::int AS
+      value FROM pg_replication_slots
+    key_labels:
+    - slot_name
+    - slot_type
