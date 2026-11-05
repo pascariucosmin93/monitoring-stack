@@ -1,0 +1,30 @@
+name: Validate observability configuration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Validate repository files
+        run: sh ./scripts/validate.sh
+
+  # Runs each service's own validator (promtool, otelcol, Loki, Alloy, kustomize) with the
+  # exact image versions deployed by the manifests (needs Docker, available on ubuntu-latest).
+  validate-configs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install Python YAML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml
+      - name: Validate service configurations
+        run: sh ./scripts/validate-configs.sh
+      - name: Test PostgreSQL 18 internal metrics
+        run: python3 ./scripts/tests/test-postgres-internals.py

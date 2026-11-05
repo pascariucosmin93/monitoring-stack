@@ -1,0 +1,70 @@
+{
+  "uid": "calculatorgaz-rum",
+  "title": "CalculatorGaz · Frontend experience",
+  "tags": ["calculatorgaz", "production", "rum", "web-vitals"],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "description": "Anonymous Web Vitals from real browsers. No cookies, account identifiers, IPs, query strings, page titles or free-form URLs are collected.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "RUM samples / second",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(rate({__name__=~\"calculatorgaz_rum_web_vital_duration.*_count\"}[5m]))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "decimals": 3 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "title": "LCP p75",
+      "description": "Largest Contentful Paint: when main content becomes visible.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.75, sum by (le) (rate({__name__=~\"calculatorgaz_rum_web_vital_duration.*_bucket\",web_vital_name=\"lcp\"}[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 2500 }, { "color": "red", "value": 4000 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 6, "y": 0 }
+    },
+    {
+      "id": 3,
+      "title": "INP p75",
+      "description": "Interaction to Next Paint: responsiveness after user interaction.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.75, sum by (le) (rate({__name__=~\"calculatorgaz_rum_web_vital_duration.*_bucket\",web_vital_name=\"inp\"}[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 200 }, { "color": "red", "value": 500 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 0 }
+    },
+    {
+      "id": 4,
+      "title": "TTFB p75",
+      "description": "Time to First Byte through Cloudflare Tunnel.",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.75, sum by (le) (rate({__name__=~\"calculatorgaz_rum_web_vital_duration.*_bucket\",web_vital_name=\"ttfb\"}[5m])))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 800 }, { "color": "red", "value": 1800 }] } }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 0 }
+    },
+    {
+      "id": 5,
+      "title": "LCP, INP, FCP și TTFB în timp",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.75, sum by (le, web_vital_name) (rate({__name__=~\"calculatorgaz_rum_web_vital_duration.*_bucket\"}[5m])))", "legendFormat": "{{web_vital_name}} p75", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "id": 6,
+      "title": "Web Vitals pe pagină",
+      "type": "table",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.75, sum by (le, page_route, web_vital_name) (rate({__name__=~\"calculatorgaz_rum_web_vital_duration.*_bucket\"}[15m])))", "format": "table", "instant": true, "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 17 }
+    }
+  ]
+}

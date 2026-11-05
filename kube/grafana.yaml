@@ -1,0 +1,260 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  replicas: 1
+  # Starea Grafana este în PostgreSQL (nu mai există volum local), deci un pod nou poate porni
+  # înaintea celui vechi (maxSurge 1, maxUnavailable 0): la fiecare deploy nu se pierde accesul.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - { key: node-role.kubernetes.io/control-plane, operator: DoesNotExist }
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: grafana
+      # Secretele se montează la /run/secrets (read-only); token-ul de service account ar încerca să
+      # creeze /run/secrets/kubernetes.io în același volum și containerul nu pornește. Grafana nu
+      # apelează API-ul Kubernetes.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:13.3.0
+          # Alerting expandează $DISCORD_WEBHOOK la provisionarea contact point-ului;
+          # valoarea se citește la pornire din secret, nu stă în manifest.
+          command:
+            - /bin/sh
+            - -ec
+            - 'export DISCORD_WEBHOOK="$(cat /run/secrets/discord_webhook)"; exec /run.sh "$@"'
+            - --
+          env:
+            # Baza de date: PostgreSQL on-prem (secretul grafana-db). Pool limitat, ca două replici să nu
+            # consume multe conexiuni.
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef: { name: grafana-db, key: host }
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef: { name: grafana-db, key: port }
+            - { name: GF_DATABASE_TYPE, value: postgres }
+            - { name: GF_DATABASE_HOST, value: "$(DB_HOST):$(DB_PORT)" }
+            - name: GF_DATABASE_NAME
+              valueFrom:
+                secretKeyRef: { name: grafana-db, key: name }
+            - name: GF_DATABASE_USER
+              valueFrom:
+                secretKeyRef: { name: grafana-db, key: user }
+            - name: GF_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: grafana-db, key: password }
+            - { name: GF_DATABASE_SSL_MODE, value: require }
+            - { name: GF_DATABASE_MAX_OPEN_CONN, value: "10" }
+            - { name: GF_DATABASE_MAX_IDLE_CONN, value: "5" }
+            - { name: GF_DATABASE_CONN_MAX_LIFETIME, value: "14400" }
+            # Alerting în mod HA: în timpul unui rolling update rulează scurt două poduri, care fac schimb de
+            # stare prin gossip (serviciul headless grafana-alerting), deci o alertă se trimite o singură dată.
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            - { name: GF_UNIFIED_ALERTING_HA_LISTEN_ADDRESS, value: "$(POD_IP):9094" }
+            - { name: GF_UNIFIED_ALERTING_HA_ADVERTISE_ADDRESS, value: "$(POD_IP):9094" }
+            - { name: GF_UNIFIED_ALERTING_HA_PEERS, value: "grafana-alerting.observability.svc.cluster.local:9094" }
+            - { name: GF_SECURITY_ADMIN_USER, value: admin }
+            - { name: GF_SECURITY_ADMIN_PASSWORD__FILE, value: /run/secrets/admin_password }
+            - { name: GF_SECURITY_SECRET_KEY__FILE, value: /run/secrets/security_secret_key }
+            - { name: GF_USERS_ALLOW_SIGN_UP, value: "false" }
+            - { name: GF_AUTH_ANONYMOUS_ENABLED, value: "false" }
+            - name: GF_SERVER_ROOT_URL
+              valueFrom:
+                secretKeyRef: { name: grafana-secrets, key: root_url }
+            - { name: GF_RENDERING_SERVER_URL, value: "http://grafana-image-renderer:8081/render" }
+            - { name: GF_RENDERING_CALLBACK_URL, value: "http://grafana:3000/" }
+            - name: GF_RENDERING_RENDERER_TOKEN
+              valueFrom:
+                secretKeyRef: { name: grafana-secrets, key: renderer_token }
+            - { name: GF_UNIFIED_ALERTING_SCREENSHOTS_CAPTURE, value: "true" }
+            - { name: GF_UNIFIED_ALERTING_SCREENSHOTS_CAPTURE_TIMEOUT, value: 30s }
+            - { name: GF_UNIFIED_ALERTING_SCREENSHOTS_MAX_CONCURRENT_SCREENSHOTS, value: "2" }
+            # SMTP doar pentru „Am uitat parola”; alertele rămân pe Discord.
+            - { name: GF_SMTP_ENABLED, value: "true" }
+            - { name: GF_SMTP_HOST, value: "smtp-relay.brevo.com:587" }
+            - name: GF_SMTP_USER
+              valueFrom:
+                secretKeyRef: { name: grafana-secrets, key: smtp_user }
+            - { name: GF_SMTP_PASSWORD__FILE, value: /run/secrets/smtp_key }
+            - { name: GF_SMTP_FROM_ADDRESS, value: noreply@cosmin-lab.com }
+            - { name: GF_SMTP_FROM_NAME, value: Grafana }
+            - { name: GF_SMTP_STARTTLS_POLICY, value: MandatoryStartTLS }
+            - { name: GF_USERS_VERIFY_EMAIL_ENABLED, value: "true" }
+          ports:
+            - { name: http, containerPort: 3000 }
+            - { name: gossip-tcp, containerPort: 9094, protocol: TCP }
+            - { name: gossip-udp, containerPort: 9094, protocol: UDP }
+          readinessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet: { path: /api/health, port: 3000 }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/grafana }
+            - { name: secrets, mountPath: /run/secrets, readOnly: true }
+            - { name: datasources, mountPath: /etc/grafana/provisioning/datasources }
+            - { name: dashboard-providers, mountPath: /etc/grafana/provisioning/dashboards }
+            - { name: alerting, mountPath: /etc/grafana/provisioning/alerting }
+            - { name: dashboards, mountPath: /var/lib/grafana/dashboards }
+            - { name: dashboards-proxmox, mountPath: /var/lib/grafana/dashboards-proxmox }
+            - { name: dashboards-infra, mountPath: /var/lib/grafana/dashboards-infra }
+      volumes:
+        # Fără stare locală: plugin-uri, capturi și cache se pierd la repornire, iar asta nu contează.
+        - name: data
+          emptyDir: {}
+        - name: secrets
+          secret:
+            secretName: grafana-secrets
+            items:
+              - { key: admin_password, path: admin_password }
+              - { key: security_secret_key, path: security_secret_key }
+              - { key: discord_webhook, path: discord_webhook }
+              - { key: smtp_key, path: smtp_key }
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-providers
+          configMap:
+            name: grafana-dashboard-providers
+        - name: alerting
+          configMap:
+            name: grafana-alerting
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: dashboards-proxmox
+          configMap:
+            name: grafana-dashboards-proxmox
+        - name: dashboards-infra
+          configMap:
+            name: grafana-dashboards-infra
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Descoperirea între replici pentru alerting HA (gossip pe 9094).
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-alerting
+  namespace: observability
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: grafana
+  ports:
+    - { name: gossip-tcp, port: 9094, targetPort: 9094, protocol: TCP }
+    - { name: gossip-udp, port: 9094, targetPort: 9094, protocol: UDP }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-image-renderer
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana-image-renderer
+  template:
+    metadata:
+      labels:
+        app: grafana-image-renderer
+    spec:
+      # Nodul master e aproape de limita de memorie; preferă workerii pentru Chromium.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - { key: node-role.kubernetes.io/control-plane, operator: DoesNotExist }
+      containers:
+        - name: renderer
+          image: grafana/grafana-image-renderer:latest
+          env:
+            - name: AUTH_TOKEN
+              valueFrom:
+                secretKeyRef: { name: grafana-secrets, key: renderer_token }
+            - { name: BROWSER_WS_URL_READ_TIMEOUT, value: 60s }
+            # Grafana renunță după 30 s (GF_UNIFIED_ALERTING_SCREENSHOTS_CAPTURE_TIMEOUT, maximul
+            # permis). Randările durau 22-31 s și expirau (408). Renderer-ul nu mai așteaptă
+            # interogări și rețea la nesfârșit: ia captura la timp, cu ce s-a încărcat până atunci.
+            - { name: BROWSER_READINESS_GIVE_UP_ON_ALL_QUERIES, value: 15s }
+            - { name: BROWSER_READINESS_NETWORK_IDLE_TIMEOUT, value: 10s }
+            - { name: BROWSER_READINESS_DOM_HASHCODE_TIMEOUT, value: 8s }
+            - { name: BROWSER_READINESS_TIMEOUT, value: 24s }
+          ports:
+            - containerPort: 8081
+          resources:
+            requests: { cpu: 250m, memory: 384Mi }
+            limits: { cpu: "2", memory: 2Gi }
+          volumeMounts:
+            # /dev/shm implicit are 64 MB; Chromium are nevoie de mai mult.
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: shm
+          emptyDir: { medium: Memory, sizeLimit: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-image-renderer
+  namespace: observability
+spec:
+  selector:
+    app: grafana-image-renderer
+  ports:
+    - port: 8081
+      targetPort: 8081

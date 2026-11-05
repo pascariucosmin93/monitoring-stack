@@ -1,0 +1,170 @@
+# Root filesystem read-only; application state and temporary files use volumes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blackbox-exporter
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: blackbox-exporter
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: grafana
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+        - name: grafana-logs
+          mountPath: /var/log/grafana
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: grafana-logs
+        emptyDir:
+          sizeLimit: 128Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana-image-renderer
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: renderer
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+        env:
+        - name: HOME
+          value: /tmp
+        - name: XDG_CACHE_HOME
+          value: /tmp/cache
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: loki
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: otel-collector
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: prometheus
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: tempo
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: alloy
+  namespace: observability
+spec:
+  template:
+    spec:
+      containers:
+      - name: alloy
+        securityContext:
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: runtime-tmp
+          mountPath: /tmp
+      volumes:
+      - name: runtime-tmp
+        emptyDir:
+          sizeLimit: 256Mi

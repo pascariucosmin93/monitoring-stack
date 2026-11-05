@@ -1,0 +1,271 @@
+# Configurația Prometheus pentru Kubernetes (descoperire prin API-ul Kubernetes).
+global:
+  scrape_interval: 2m
+  evaluation_interval: 2m
+  external_labels:
+    cluster: cosmin-kube
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # node-exporter rulează ca DaemonSet cu hostNetwork, deci adresa podului este IP-ul nodului.
+  - job_name: node
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [observability]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: node-exporter
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_ip]
+        replacement: "$1:9100"
+        target_label: __address__
+      - target_label: component
+        replacement: node-exporter
+
+  # Hipervizorul Proxmox este în afara clusterului: țintă statică.
+  - job_name: proxmox-node
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["192.168.1.30:9100"]
+        labels:
+          role: proxmox
+          node: pve
+
+  # Runnerul Gitea (toate containerele act_runner rulează pe aceeași mașină): disc, CPU, RAM.
+  - job_name: runner
+    scrape_interval: 1m
+    static_configs:
+      - targets: ["192.168.1.35:9100"]
+        labels:
+          role: runner
+          host: runner-gitea
+
+  # Serverele PostgreSQL: metrici de sistem și metricile scripturilor de backup
+  # (textfile collector: backup_*, pgbackrest_*, pg_archiver_*, pg_backup_is_primary).
+  - job_name: postgres-hosts
+    scrape_interval: 1m
+    static_configs:
+      - targets: ["192.168.1.16:9100"]
+        labels:
+          role: postgres
+          host: postgress
+      - targets: ["192.168.1.17:9100"]
+        labels:
+          role: postgres
+          host: postgress-1
+
+  # SQL Exporter queries PostgreSQL 18 directly with a dedicated pg_monitor role.
+  # instance remains the database address, not the Kubernetes exporter address.
+  - job_name: postgres-internal
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    static_configs:
+      - targets: ["postgres-exporter-postgress:9399"]
+        labels:
+          instance: "192.168.1.16:5432"
+          host: postgress
+      - targets: ["postgres-exporter-postgress-1:9399"]
+        labels:
+          instance: "192.168.1.17:5432"
+          host: postgress-1
+
+  - job_name: proxmox-guests
+    scrape_interval: 30s
+    scrape_timeout: 25s
+    metrics_path: /pve
+    params:
+      module: [default]
+      cluster: ['1']
+      node: ['1']
+    static_configs:
+      - targets: ["192.168.1.30:9221"]
+        labels:
+          role: proxmox
+          node: pve
+
+  # cAdvisor este inclus în kubelet; se citește prin API server (RBAC: nodes/proxy).
+  - job_name: cadvisor
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+      - target_label: component
+        replacement: cadvisor
+
+  # API server (k3s): rate, erori și latență ale cererilor.
+  - job_name: apiserver
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [default]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        regex: kubernetes;https
+        action: keep
+
+  # Kubelet: pod-uri, PLEG și spațiul volumelor (kubelet_volume_stats_*), prin API server.
+  - job_name: kubelet
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/$1/proxy/metrics
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+
+  - job_name: coredns
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [kube-system]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+        regex: kube-dns
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_ip]
+        replacement: "$1:9153"
+        target_label: __address__
+
+  # Argo CD: starea aplicațiilor (sincronizare, sănătate) și a accesului la Git.
+  - job_name: argocd
+    static_configs:
+      - targets:
+          - argocd-metrics.argocd.svc.cluster.local:8082
+          - argocd-server-metrics.argocd.svc.cluster.local:8083
+          - argocd-repo-server.argocd.svc.cluster.local:8084
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+
+  - job_name: kube-state-metrics
+    static_configs:
+      - targets: ["kube-state-metrics:8080"]
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]
+
+  - job_name: loki
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: alloy
+    scrape_interval: 30s
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [observability]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: alloy
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_ip]
+        replacement: "$1:12345"
+        target_label: __address__
+
+  - job_name: otel-application-metrics
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # Aplicația CalculatorGaz rulează în namespace-ul gaz (politicile de rețea din
+  # gaz-kube permit Prometheus din observability să le acceseze).
+  - job_name: calculatorgaz-business
+    static_configs:
+      - targets: ["admin-metrics-service.gaz.svc.cluster.local:8089"]
+        labels:
+          application: calculatorgaz
+
+  - job_name: blackbox
+    scrape_interval: 30s
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://calculatorgaz.gaz.svc.cluster.local:3000/api/health
+        labels:
+          application: calculatorgaz
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: calculatorgaz-public
+    scrape_interval: 30s
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://gaz.cosmin-lab.com/api/health
+        labels:
+          application: calculatorgaz
+          monitor: public-edge
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Servicii publice din spatele Cloudflare Tunnel: cale completă DNS + TLS + tunel + serviciu.
+  - job_name: public-endpoints
+    scrape_interval: 1m
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://argo.cosmin-lab.com/healthz
+          - https://grafana.cosmin-lab.com/api/health
+          - https://gitea.cosmin-lab.com/api/healthz
+        labels:
+          monitor: public-edge-infra
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

@@ -1,0 +1,57 @@
+// Un pod Alloy per nod (DaemonSet). Citește doar logurile podurilor de pe nodul propriu,
+// prin API-ul Kubernetes, fără acces la socketul Docker.
+discovery.kubernetes "pods" {
+  role = "pod"
+  selectors {
+    role  = "pod"
+    field = "spec.nodeName=" + sys.env("NODE_NAME")
+  }
+}
+
+// Etichete cu cardinalitate mică: fără ID-uri de container sau nume de pod în etichete.
+discovery.relabel "production_logs" {
+  targets = discovery.kubernetes.pods.targets
+
+  // Evită ingestia recursivă și zgomotul agenților de metrici.
+  rule {
+    source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app"]
+    separator     = "/"
+    regex         = "observability/(alloy|loki|node-exporter)"
+    action        = "drop"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_kubernetes_namespace"]
+    target_label  = "stack"
+  }
+}
+
+loki.source.kubernetes "pods" {
+  targets    = discovery.relabel.production_logs.output
+  forward_to = [loki.process.labels.receiver]
+}
+
+loki.process "labels" {
+  stage.static_labels {
+    values = { environment = "production", node = sys.env("NODE_NAME"), source = "kubernetes" }
+  }
+  forward_to = [loki.secretfilter.redact.receiver]
+}
+
+// Secretele sunt eliminate înainte ca o linie să părăsească nodul.
+loki.secretfilter "redact" {
+  forward_to     = [loki.write.local.receiver]
+  redact_percent = 100
+  origin_label   = "service"
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

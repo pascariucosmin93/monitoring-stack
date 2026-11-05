@@ -1,0 +1,680 @@
+{
+  "uid": "proxmox-disk-smart",
+  "title": "Proxmox — Disk SMART",
+  "tags": [
+    "proxmox",
+    "disk",
+    "smart"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 41,
+  "version": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Stare SMART",
+      "description": "Verdictul general al discului (testul „overall-health”). Alerta pornește când nu mai este SĂNĂTOS.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_device_smart_healthy{job=\"proxmox-node\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "PROBLEMĂ",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "SĂNĂTOS",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Sectoare realocate",
+      "description": "Sectoare defecte înlocuite de disc. Orice valoare peste 0 este un semn de uzură.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_reallocated_sector_ct_raw_value{job=\"proxmox-node\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Sectoare în așteptare",
+      "description": "Sectoare instabile, care nu s-au putut citi. Peste 0 înseamnă risc de pierdere de date.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_current_pending_sector_raw_value{job=\"proxmox-node\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      }
+    },
+    {
+      "id": 4,
+      "title": "Erori necorectabile raportate",
+      "description": "Erori de citire pe care discul nu le-a putut corecta. Acum sunt 2; contează dacă cresc.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_reported_uncorrect_raw_value{job=\"proxmox-node\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 5,
+      "title": "Temperatură disc",
+      "description": "Temperatura raportată de disc. Alerta pornește peste 50 °C.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_temperature_celsius_raw_value{job=\"proxmox-node\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 45
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      }
+    },
+    {
+      "id": 6,
+      "title": "Ore de funcționare",
+      "description": "Timpul total de funcționare al discului, în ore. 8.760 de ore înseamnă un an.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_power_on_hours_raw_value{job=\"proxmox-node\"}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: ore",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 35000
+              },
+              {
+                "color": "red",
+                "value": 50000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      }
+    },
+    {
+      "id": 7,
+      "title": "Erori SMART în timp",
+      "description": "Atributele care contează pentru pierdere de date. Orice creștere trebuie investigată.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_reallocated_sector_ct_raw_value{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "sectoare realocate"
+        },
+        {
+          "expr": "smartmon_current_pending_sector_raw_value{job=\"proxmox-node\"}",
+          "refId": "B",
+          "legendFormat": "sectoare în așteptare"
+        },
+        {
+          "expr": "smartmon_offline_uncorrectable_raw_value{job=\"proxmox-node\"}",
+          "refId": "C",
+          "legendFormat": "necorectabile offline"
+        },
+        {
+          "expr": "smartmon_reported_uncorrect_raw_value{job=\"proxmox-node\"}",
+          "refId": "D",
+          "legendFormat": "erori necorectabile raportate"
+        },
+        {
+          "expr": "smartmon_udma_crc_error_count_raw_value{job=\"proxmox-node\"}",
+          "refId": "E",
+          "legendFormat": "erori CRC (cablu)"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      }
+    },
+    {
+      "id": 8,
+      "title": "Temperatura discului",
+      "description": "Temperatura discului fizic în timp.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_temperature_celsius_raw_value{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "temperatură"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      }
+    },
+    {
+      "id": 9,
+      "title": "Date scrise și citite pe disc (total)",
+      "description": "Volumul total de date trecut prin disc de la fabricare.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_total_lbas_written_raw_value{job=\"proxmox-node\"} * 512",
+          "refId": "A",
+          "legendFormat": "scris"
+        },
+        {
+          "expr": "smartmon_total_lbas_read_raw_value{job=\"proxmox-node\"} * 512",
+          "refId": "B",
+          "legendFormat": "citit"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      }
+    },
+    {
+      "id": 10,
+      "title": "Sănătatea atributelor (100 = perfect)",
+      "description": "Valoarea normalizată a atributelor critice. Scade pe măsură ce discul se degradează; sub prag discul se consideră defect.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartmon_reallocated_sector_ct_value{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "sectoare realocate"
+        },
+        {
+          "expr": "smartmon_current_pending_sector_value{job=\"proxmox-node\"}",
+          "refId": "B",
+          "legendFormat": "sectoare în așteptare"
+        },
+        {
+          "expr": "smartmon_reported_uncorrect_value{job=\"proxmox-node\"}",
+          "refId": "C",
+          "legendFormat": "erori necorectabile"
+        },
+        {
+          "expr": "smartmon_offline_uncorrectable_value{job=\"proxmox-node\"}",
+          "refId": "D",
+          "legendFormat": "necorectabile offline"
+        },
+        {
+          "expr": "smartmon_spin_retry_count_value{job=\"proxmox-node\"}",
+          "refId": "E",
+          "legendFormat": "reîncercări pornire"
+        },
+        {
+          "expr": "smartmon_end_to_end_error_value{job=\"proxmox-node\"}",
+          "refId": "F",
+          "legendFormat": "end-to-end"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0,
+          "max": 100
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      }
+    },
+    {
+      "id": 11,
+      "title": "Toate atributele SMART",
+      "description": "Valoarea brută a fiecărui atribut raportat de disc, în ordinea ID-ului SMART.",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "{__name__=~\"smartmon_.*_raw_value\",job=\"proxmox-node\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "smart_id",
+                "__name__",
+                "Value"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "smart_id": "ID",
+              "__name__": "Atribut",
+              "Value": "Valoare brută"
+            },
+            "indexByName": {
+              "smart_id": 0,
+              "__name__": 1,
+              "Value": 2
+            }
+          }
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "ID",
+            "desc": false
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      }
+    }
+  ]
+}
