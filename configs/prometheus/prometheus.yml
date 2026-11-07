@@ -124,6 +124,16 @@ scrape_configs:
       - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
         regex: kubernetes;https
         action: keep
+    # Reduce cardinalitatea (~100k serii): histogramele nefolosite se elimină.
+    # apiserver_request_duration_seconds_bucket rămâne (folosit în dashboard și alertă),
+    # dar fără WATCH/CONNECT, excluse oricum din interogări.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "etcd_request_duration_seconds_bucket|apiserver_request_sli_duration_seconds_bucket|apiserver_request_body_size_bytes_bucket|apiserver_response_sizes_bucket|apiserver_watch_cache_read_wait_seconds_bucket"
+        action: drop
+      - source_labels: [__name__, verb]
+        regex: "apiserver_request_duration_seconds_bucket;(WATCH|CONNECT)"
+        action: drop
 
   # Kubelet: pod-uri, PLEG și spațiul volumelor (kubelet_volume_stats_*), prin API server.
   - job_name: kubelet

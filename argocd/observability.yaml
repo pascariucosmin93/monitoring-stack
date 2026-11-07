@@ -11,6 +11,7 @@ spec:
     repoURL: https://github.com/pascariucosmin93/monitoring-stack.git
     targetRevision: main
     path: .
+    kustomize: {}
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
