@@ -28,7 +28,7 @@ scrape_configs:
 
   # Hipervizorul Proxmox este în afara clusterului: țintă statică.
   - job_name: proxmox-node
-    scrape_interval: 30s
+    scrape_interval: 3m
     static_configs:
       - targets: ["192.168.1.30:9100"]
         labels:
@@ -61,7 +61,7 @@ scrape_configs:
   # SQL Exporter queries PostgreSQL 18 directly with a dedicated pg_monitor role.
   # instance remains the database address, not the Kubernetes exporter address.
   - job_name: postgres-internal
-    scrape_interval: 30s
+    scrape_interval: 3m
     scrape_timeout: 10s
     static_configs:
       - targets: ["postgres-exporter-postgress:9399"]
@@ -74,7 +74,7 @@ scrape_configs:
           host: postgress-1
 
   - job_name: proxmox-guests
-    scrape_interval: 30s
+    scrape_interval: 3m
     scrape_timeout: 25s
     metrics_path: /pve
     params:
@@ -192,12 +192,12 @@ scrape_configs:
       - targets: ["otel-collector:8888"]
 
   - job_name: loki
-    scrape_interval: 30s
+    scrape_interval: 3m
     static_configs:
       - targets: ["loki:3100"]
 
   - job_name: alloy
-    scrape_interval: 30s
+    scrape_interval: 3m
     kubernetes_sd_configs:
       - role: pod
         namespaces:

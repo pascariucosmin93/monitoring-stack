@@ -48,6 +48,8 @@ spec:
             - --storage.tsdb.retention.time=30d
             - --storage.tsdb.retention.size=4GB
             - --web.enable-lifecycle
+          env:
+            - { name: GOMEMLIMIT, value: 650MiB }
           ports:
             - containerPort: 9090
           readinessProbe:
