@@ -12,11 +12,10 @@ discovery.kubernetes "pods" {
 discovery.relabel "production_logs" {
   targets = discovery.kubernetes.pods.targets
 
-  // Evită ingestia recursivă și zgomotul agenților de metrici.
+  // Evită ingestia recursivă: logurile namespace-ului observability nu se trimit în Loki.
   rule {
-    source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_label_app"]
-    separator     = "/"
-    regex         = "observability/(alloy|loki|node-exporter)"
+    source_labels = ["__meta_kubernetes_namespace"]
+    regex         = "observability"
     action        = "drop"
   }
 

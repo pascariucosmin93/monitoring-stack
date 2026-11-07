@@ -117,11 +117,11 @@ scrape_configs:
     authorization:
       credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
     kubernetes_sd_configs:
-      - role: endpoints
+      - role: endpointslice
         namespaces:
           names: [default]
     relabel_configs:
-      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpointslice_port_name]
         regex: kubernetes;https
         action: keep
     # Reduce cardinalitatea (~100k serii): histogramele nefolosite se elimină.
