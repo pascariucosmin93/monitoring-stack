@@ -36,6 +36,13 @@ loki.source.kubernetes "pods" {
 }
 
 loki.process "labels" {
+  // Loki rejects entries older than 168h. Filter expired replayed lines before
+  // batching, with a 1h margin and a separate counter from delivery failures.
+  stage.drop {
+    older_than          = "167h"
+    drop_counter_reason = "expired_before_loki"
+  }
+
   stage.static_labels {
     values = { environment = "production", node = sys.env("NODE_NAME"), source = "kubernetes" }
   }
