@@ -1,20 +1,35 @@
 {
   "uid": "proxmox-disk-smart",
-  "title": "Proxmox — Disk SMART",
+  "title": "Proxmox — Disk SMART (HDD + SSD)",
   "tags": [
     "proxmox",
     "disk",
-    "smart"
+    "smart",
+    "ssd",
+    "nvme"
   ],
   "timezone": "browser",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "refresh": "5m",
   "time": {
     "from": "now-7d",
     "to": "now"
   },
   "panels": [
+    {
+      "id": 99,
+      "type": "row",
+      "title": "HDD (SATA)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
     {
       "id": 1,
       "title": "Stare SMART",
@@ -26,7 +41,7 @@
       },
       "targets": [
         {
-          "expr": "smartmon_device_smart_healthy{job=\"proxmox-node\"}",
+          "expr": "smartmon_device_smart_healthy{job=\"proxmox-node\",type=\"sat\"}",
           "refId": "A"
         }
       ],
@@ -84,7 +99,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 0
+        "y": 1
       }
     },
     {
@@ -139,7 +154,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 0
+        "y": 1
       }
     },
     {
@@ -194,7 +209,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 0
+        "y": 1
       }
     },
     {
@@ -253,7 +268,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 0
+        "y": 1
       }
     },
     {
@@ -312,7 +327,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 0
+        "y": 1
       }
     },
     {
@@ -371,7 +386,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 0
+        "y": 1
       }
     },
     {
@@ -436,7 +451,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 4
+        "y": 5
       }
     },
     {
@@ -481,7 +496,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 5
       }
     },
     {
@@ -531,7 +546,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 12
+        "y": 13
       }
     },
     {
@@ -602,7 +617,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 12
+        "y": 13
       }
     },
     {
@@ -673,7 +688,733 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 21
+      }
+    },
+    {
+      "id": 100,
+      "type": "row",
+      "title": "SSD NVMe",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "id": 101,
+      "title": "Stare NVMe",
+      "description": "Câmpul „critical warning” raportat de controller. Orice valoare diferită de 0 (rezervă epuizată, temperatură, degradare, mod read-only) înseamnă problemă.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_critical_warning{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "SĂNĂTOS",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1,
+                "to": 255,
+                "result": {
+                  "text": "PROBLEMĂ",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 34
+      }
+    },
+    {
+      "id": 102,
+      "title": "Uzură SSD",
+      "description": "Cât din durata de viață estimată de producător a fost consumată (Percentage Used). 100% = garanția de scrieri atinsă; discul poate merge și peste, dar trebuie înlocuit curând.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_percentage_used_ratio{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 34
+      }
+    },
+    {
+      "id": 103,
+      "title": "Rezervă disponibilă",
+      "description": "Blocuri de rezervă rămase pentru înlocuirea celulelor uzate. Sub pragul producătorului (de obicei 10%) controllerul ridică critical warning.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_available_spare_ratio{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              },
+              {
+                "color": "green",
+                "value": 0.5
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 34
+      }
+    },
+    {
+      "id": 104,
+      "title": "Erori media",
+      "description": "Erori de integritate a datelor nerecuperabile detectate de controller. Ar trebui să fie mereu 0.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_media_errors_total{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 34
+      }
+    },
+    {
+      "id": 105,
+      "title": "Temperatură SSD",
+      "description": "Temperatura compozită raportată de controller. NVMe-urile încep throttling de obicei pe la 70 °C.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_temperature_celsius{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 70
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 34
+      }
+    },
+    {
+      "id": 106,
+      "title": "Ore de funcționare SSD",
+      "description": "Total ore în care SSD-ul a fost alimentat.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_power_on_hours_total{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 34
+      }
+    },
+    {
+      "id": 107,
+      "title": "Uzură și rezervă în timp",
+      "description": "Evoluția uzurii (crește) și a blocurilor de rezervă (scade). Linia punctată = pragul de rezervă al producătorului.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_percentage_used_ratio{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "uzură {{device}}"
+        },
+        {
+          "expr": "nvme_available_spare_ratio{job=\"proxmox-node\"}",
+          "refId": "B",
+          "legendFormat": "rezervă {{device}}"
+        },
+        {
+          "expr": "nvme_available_spare_threshold_ratio{job=\"proxmox-node\"}",
+          "refId": "C",
+          "legendFormat": "prag rezervă {{device}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      }
+    },
+    {
+      "id": 108,
+      "title": "Temperatura SSD",
+      "description": "Temperatura controllerului NVMe în timp.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_temperature_celsius{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "{{device}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      }
+    },
+    {
+      "id": 109,
+      "title": "Date scrise și citite pe SSD (total)",
+      "description": "Volumul total transferat de la fabricație (1 data unit NVMe = 512 000 B). Scrierile determină uzura.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_data_units_written_total{job=\"proxmox-node\"} * 512000",
+          "refId": "A",
+          "legendFormat": "scris {{device}}"
+        },
+        {
+          "expr": "nvme_data_units_read_total{job=\"proxmox-node\"} * 512000",
+          "refId": "B",
+          "legendFormat": "citit {{device}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      }
+    },
+    {
+      "id": 110,
+      "title": "Ritm de scriere și citire SSD",
+      "description": "Medie pe ultima oră a debitului de scriere/citire, din contoarele SMART ale SSD-ului.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "rate(nvme_data_units_written_total{job=\"proxmox-node\"}[1h]) * 512000",
+          "refId": "A",
+          "legendFormat": "scris {{device}}"
+        },
+        {
+          "expr": "rate(nvme_data_units_read_total{job=\"proxmox-node\"}[1h]) * 512000",
+          "refId": "B",
+          "legendFormat": "citit {{device}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      }
+    },
+    {
+      "id": 111,
+      "title": "Erori și opriri neașteptate SSD",
+      "description": "Erori media, intrări în jurnalul de erori și opriri fără shutdown curat (pană de curent, reset forțat). Contează creșterile, nu valoarea absolută.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_media_errors_total{job=\"proxmox-node\"}",
+          "refId": "A",
+          "legendFormat": "erori media {{device}}"
+        },
+        {
+          "expr": "nvme_num_err_log_entries_total{job=\"proxmox-node\"}",
+          "refId": "B",
+          "legendFormat": "jurnal erori {{device}}"
+        },
+        {
+          "expr": "nvme_unsafe_shutdowns_total{job=\"proxmox-node\"}",
+          "refId": "C",
+          "legendFormat": "opriri neașteptate {{device}}"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "spanNulls": true
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      }
+    },
+    {
+      "id": 112,
+      "title": "Informații SSD",
+      "description": "Modelul, firmware-ul și capacitatea SSD-urilor NVMe detectate.",
+      "type": "table",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "nvme_device_info{job=\"proxmox-node\"} * on (device) group_left nvme_physical_size_bytes{job=\"proxmox-node\"}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "device",
+                "model",
+                "firmware",
+                "serial",
+                "Value"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "device": "Dispozitiv",
+              "model": "Model",
+              "firmware": "Firmware",
+              "serial": "Serie",
+              "Value": "Capacitate"
+            },
+            "indexByName": {
+              "device": 0,
+              "model": 1,
+              "firmware": 2,
+              "serial": 3,
+              "Value": 4
+            }
+          }
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Capacitate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
       }
     }
   ]
