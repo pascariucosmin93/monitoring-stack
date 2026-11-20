@@ -1939,6 +1939,222 @@ groups:
         labels:
           severity: warning
 
+      - uid: proxmox-nvme-critical-warning
+        title: Proxmox NVMe SSD critical warning
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'nvme_critical_warning{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # NVMe's own failure flag: spare below threshold, overheating, degraded
+        # reliability or read-only mode. SMART overall-health is not reported for this
+        # drive, so this is its health verdict.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'SSD-ul {{ $labels.device }} raportează critical warning (valoare {{ $values.A }}); fă backup și pregătește înlocuirea.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "101"
+        labels:
+          severity: critical
+
+      - uid: proxmox-nvme-media-errors
+        title: Proxmox NVMe SSD media errors
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'increase(nvme_media_errors_total{job="proxmox-node"}[24h])'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+              refId: B
+        # Unrecovered data-integrity errors. Fires for a day after each new error, like
+        # the HDD read-error rule, instead of staying on forever.
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: 'SSD-ul {{ $labels.device }} a raportat erori media noi în ultimele 24 de ore; date posibil corupte.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "104"
+        labels:
+          severity: critical
+
+      - uid: proxmox-nvme-wear
+        title: Proxmox NVMe SSD wear above 80%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'nvme_percentage_used_ratio{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0.8] }
+              refId: B
+        # Percentage Used is the vendor's endurance estimate. Changes slowly; early
+        # warning to buy a replacement.
+        noDataState: OK
+        execErrState: Alerting
+        for: 1h
+        annotations:
+          summary: 'SSD-ul {{ $labels.device }} a consumat peste 80% din durata de viață estimată; planifică înlocuirea.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "102"
+        labels:
+          severity: warning
+
+      - uid: proxmox-nvme-spare-low
+        title: Proxmox NVMe SSD spare below 50%
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'nvme_available_spare_ratio{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: lt, params: [0.5] }
+              refId: B
+        # Spare blocks are used up as cells wear out. Below the vendor threshold
+        # (usually 10%) the critical-warning rule fires; this warns well before that.
+        noDataState: OK
+        execErrState: Alerting
+        for: 1h
+        annotations:
+          summary: 'SSD-ul {{ $labels.device }} mai are sub 50% blocuri de rezervă; uzura accelerează.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "103"
+        labels:
+          severity: warning
+
+      - uid: proxmox-nvme-temperature
+        title: Proxmox NVMe SSD temperature above 70C
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'nvme_temperature_celsius{job="proxmox-node"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [70] }
+              refId: B
+        # NVMe drives start throttling around 70C; sustained heat shortens their life.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'SSD-ul {{ $labels.device }} depășește 70 °C de cel puțin 15 minute.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "105"
+        labels:
+          severity: warning
+
+      - uid: proxmox-nvme-data-stale
+        title: Proxmox NVMe data not updating
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: { from: 1800, to: 0 }
+            datasourceUid: prometheus
+            model:
+              editorMode: code
+              expr: 'time() - node_textfile_mtime_seconds{job="proxmox-node",file=~".*/nvme.prom"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              datasource: { type: __expr__, uid: __expr__ }
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [3600] }
+              refId: B
+        # nvme.prom is rewritten on each run of the nvme timer. Over an hour old means
+        # the NVMe alerts above are looking at a stale picture.
+        noDataState: OK
+        execErrState: Alerting
+        for: 15m
+        annotations:
+          summary: 'Datele NVMe de pe hostul Proxmox nu s-au mai actualizat de peste o oră; verifică timerul care scrie nvme.prom.'
+          __dashboardUid__: proxmox-disk-smart
+          __panelId__: "101"
+        labels:
+          severity: warning
+
   - orgId: 1
     name: Infrastructure and backups
     folder: Infrastructure
