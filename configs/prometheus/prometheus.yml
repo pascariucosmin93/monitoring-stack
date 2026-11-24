@@ -53,10 +53,6 @@ scrape_configs:
         labels:
           role: postgres
           host: postgress
-      - targets: ["192.168.1.17:9100"]
-        labels:
-          role: postgres
-          host: postgress-1
 
   # SQL Exporter queries PostgreSQL 18 directly with a dedicated pg_monitor role.
   # instance remains the database address, not the Kubernetes exporter address.
@@ -68,10 +64,6 @@ scrape_configs:
         labels:
           instance: "192.168.1.16:5432"
           host: postgress
-      - targets: ["postgres-exporter-postgress-1:9399"]
-        labels:
-          instance: "192.168.1.17:5432"
-          host: postgress-1
 
   - job_name: proxmox-guests
     scrape_interval: 3m

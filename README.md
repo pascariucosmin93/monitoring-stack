@@ -46,7 +46,7 @@ repo-ul `infra`, `postgres-backup/`):
 | Job Prometheus | Țintă | Ce se vede |
 |---|---|---|
 | `runner` | `192.168.1.35` (toate containerele `act_runner`) | disc, CPU, RAM, I/O |
-| `postgres-hosts` | `192.168.1.16`, `192.168.1.17` | sistem + metrici de backup din textfile collector |
+| `postgres-hosts` | `192.168.1.16` | sistem + metrici de backup din textfile collector |
 
 Dashboard: **Infrastructure → Infrastructură — Runner & Backup R2** (`infra-runner-backups`): ocuparea discului
 runnerului cu estimare de umplere, vârsta ultimului backup (pgBackRest, full și dump logic), momentul și
@@ -74,11 +74,11 @@ Un runner sau un server Postgres căzut este prins de regula generală *Monitori
 
 ## Metrici interne PostgreSQL 18
 
-SQL Exporter rulează în Kubernetes, în namespace-ul `observability`: câte un Deployment pentru
-`192.168.1.16` (`postgress`) și `192.168.1.17` (`postgress-1`). Nu instalează nimic pe serverele
-PostgreSQL. Citește statistici prin conexiuni TLS pe portul 5432, cu un rol dedicat `pg_monitor`;
+SQL Exporter rulează în Kubernetes, în namespace-ul `observability`: un Deployment pentru
+`192.168.1.16` (`postgress`), singurul server PostgreSQL (replica `192.168.1.17` / `postgress-1` a fost
+decomisionată pe 2026-11-24). Nu instalează nimic pe serverul PostgreSQL. Citește statistici prin conexiuni TLS pe portul 5432, cu un rol dedicat `pg_monitor`;
 Prometheus citește exporterii la fiecare 30 de secunde. Rolul primar/replică este descoperit din SQL,
-deci nu este legat de IP în cazul unei promovări. Topologia așteptată este un primar și o replică.
+Topologia actuală este un singur primar, fără replică.
 
 Dashboard în folderul **Infrastructure**: **PostgreSQL — Stare internă & replicare**
 (`postgres-internals`), cu filtru după server. Interogările sunt în
@@ -90,17 +90,16 @@ Dashboard în folderul **Infrastructure**: **PostgreSQL — Stare internă & rep
 | Tranzacție veche, inclusiv idle in transaction | > 5 min timp de încă 5 min |
 | Sesiuni blocate și timpul real de așteptare din `pg_locks.waitstart` | așteptare > 60 s timp de 2 min |
 | Deadlock-uri pe bază de date | creștere în ultimele 10 min |
-| Primar fără replică streaming / replică fără WAL receiver streaming | timp de 5 min |
 | WAL neaplicat de replică, măsurat pe primar | > 64 MiB timp de 5 min |
 | WAL reținut de fiecare replication slot | > 1 GiB timp de 10 min |
 | Replication slot cu `wal_status=lost` | timp de 1 min |
-| Metrici interne absente pentru fiecare server | lipsesc 5 min, apoi condiția persistă încă 2 min |
+| Metrici interne absente | lipsesc 5 min, apoi condiția persistă încă 2 min |
 
 Pragurile sunt puncte de pornire și se ajustează după volumul de scrieri și capacitatea discurilor.
 Dashboard-ul arată și `replay_lag` în secunde; NULL devine zero când PostgreSQL nu raportează lag.
 Alerta folosește backlog-ul în bytes, evitând calculul eronat al întârzierii din vârsta ultimei
-tranzacții pe o bază fără scrieri. Deconectarea replicii are alertă separată, deoarece atunci
-seria cu backlog poate dispărea. Sloturile inexistente nu declanșează alerte.
+tranzacții pe o bază fără scrieri. Fără replică, alertele de lag și sloturi nu au serii și nu se
+declanșează; alertele „primar fără replică” și „WAL receiver” au fost scoase odată cu replica.
 
 ### Activare
 
@@ -108,8 +107,8 @@ seria cu backlog poate dispărea. Sloturile inexistente nu declanșează alerte.
    `scripts/postgres-monitoring-role.sql`, cu `psql -X -v ON_ERROR_STOP=1 -f <fișier>`.
    Creează `observability_monitor`, acordă `pg_monitor` și CONNECT la baza `postgres`, setează
    tranzacții read-only implicit și timeout SQL de 5 s, apoi cere parola interactiv.
-   Rolul și parola ajung pe replica fizică prin replicare. Nu este necesară o extensie sau restart.
-2. Pe **ambele servere**, permite în `pg_hba.conf` accesul rolului la baza `postgres` doar din
+   Nu este necesară o extensie sau restart.
+2. Pe server, permite în `pg_hba.conf` accesul rolului la baza `postgres` doar din
    adresele sursă folosite de nodurile Kubernetes, apoi reîncarcă configurația. Exemplu de regulă
    (înlocuiește CIDR-ul cu sursa reală; nu folosi acces general):
 
@@ -120,16 +119,14 @@ seria cu backlog poate dispărea. Sloturile inexistente nu declanșează alerte.
    Verifică și firewall-ul către portul 5432. DSN-urile folosesc `sslmode=require`, care criptează
    conexiunea; pentru verificarea identității serverului folosește `verify-full` și montează CA-ul.
 3. În Vault, mount-ul KV v2 `kv`, creează calea
-   `prod/observability/observability_monitor` cu proprietățile `postgress_dsn` și
-   `postgress_1_dsn`. Fiecare valoare este un DSN complet:
+   `prod/observability/observability_monitor` cu proprietatea `postgress_dsn`, un DSN complet:
 
    ```text
    postgresql://observability_monitor:<parola-URL-encoded>@192.168.1.16:5432/postgres?sslmode=require&connect_timeout=5&application_name=observability-postgres
-   postgresql://observability_monitor:<parola-URL-encoded>@192.168.1.17:5432/postgres?sslmode=require&connect_timeout=5&application_name=observability-postgres
    ```
 
-   `kube/postgres-monitoring-secret.yaml` definește un ExternalSecret care citește cele două
-   proprietăți prin ClusterSecretStore-ul existent `vault-kv` și creează secretul Kubernetes
+   `kube/postgres-monitoring-secret.yaml` definește un ExternalSecret care citește
+   proprietatea prin ClusterSecretStore-ul existent `vault-kv` și creează secretul Kubernetes
    `postgres-monitoring` în `observability`. Sincronizarea este la fiecare minut. Operatorul
    External Secrets și store-ul Vault trebuie să existe înainte de deploy.
 
@@ -137,14 +134,13 @@ seria cu backlog poate dispărea. Sloturile inexistente nu declanșează alerte.
    și creează manual secretul cu `python3 scripts/create-postgres-monitoring-secret.py`.
    Scriptul cere parola ascuns și nu o salvează în fișiere locale. Nu folosi scripturile de
    creare manuală a secretului când acesta este gestionat de Vault.
-4. Livrează modificările prin fluxul Argo CD existent. Verifică cele două Deployment-uri
-   `postgres-exporter-postgress` și `postgres-exporter-postgress-1`, apoi în Prometheus:
-   `up{job="postgres-internal"}` trebuie să fie 1 pentru ambele ținte.
+4. Livrează modificările prin fluxul Argo CD existent. Verifică Deployment-ul
+   `postgres-exporter-postgress`, apoi în Prometheus: `up{job="postgres-internal"}` trebuie să fie 1.
 
-Fără secret, exporterii nu pornesc; pregătește contul, accesul și secretul înainte de sincronizare.
+Fără secret, exporterul nu pornește; pregătește contul, accesul și secretul înainte de sincronizare.
 O eroare de autentificare sau de interogare produce un scrape eșuat, prins și de alerta generală
 *Monitoring target unavailable*. Probele de sănătate ale podurilor verifică serverul HTTP al exporterului,
-fără interogări SQL. La rotația parolei, actualizează secretul și repornește ambele Deployment-uri.
+fără interogări SQL. La rotația parolei, actualizează secretul și repornește Deployment-ul.
 
 ### Teste PostgreSQL
 

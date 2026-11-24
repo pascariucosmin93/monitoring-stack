@@ -53,11 +53,10 @@ fi
 
 # SQL Exporter PostgreSQL: DSN-uri complete cu utilizatorul dedicat și sslmode=require.
 # Opțional: păstrează secretul existent dacă fișierele nu sunt furnizate.
-if [ -s secrets/postgres_monitoring_postgress_dsn ] || [ -s secrets/postgres_monitoring_postgress_1_dsn ]; then
-  need postgres_monitoring_postgress_dsn postgres_monitoring_postgress_1_dsn
+if [ -s secrets/postgres_monitoring_postgress_dsn ]; then
+  need postgres_monitoring_postgress_dsn
   apply postgres-monitoring \
-    --from-file=postgress_dsn=secrets/postgres_monitoring_postgress_dsn \
-    --from-file=postgress_1_dsn=secrets/postgres_monitoring_postgress_1_dsn
+    --from-file=postgress_dsn=secrets/postgres_monitoring_postgress_dsn
 fi
 
 apply loki-r2 \

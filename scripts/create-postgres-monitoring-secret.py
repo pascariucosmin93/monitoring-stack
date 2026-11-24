@@ -12,7 +12,7 @@ if not password:
 params = urlencode({'sslmode': 'require', 'connect_timeout': '5',
                     'application_name': 'observability-postgres'})
 data = {}
-for key, host in [('postgress_dsn', '192.168.1.16'), ('postgress_1_dsn', '192.168.1.17')]:
+for key, host in [('postgress_dsn', '192.168.1.16')]:
     dsn = f'postgresql://observability_monitor:{quote(password, safe="")}@{host}:5432/postgres?{params}'
     data[key] = base64.b64encode(dsn.encode()).decode()
 secret = {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
@@ -20,4 +20,4 @@ secret = {'apiVersion': 'v1', 'kind': 'Secret', 'type': 'Opaque',
           'data': data}
 # Pass credentials over stdin, never in process arguments or command output.
 subprocess.run(['kubectl', 'apply', '-f', '-'], input=json.dumps(secret), text=True, check=True)
-print('Secret creat. La rotație, repornește cele două Deployment-uri postgres-exporter.')
+print('Secret creat. La rotație, repornește Deployment-ul postgres-exporter-postgress.')
