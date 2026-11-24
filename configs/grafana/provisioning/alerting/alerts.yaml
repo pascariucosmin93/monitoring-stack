@@ -62,6 +62,15 @@ deleteRules:
     uid: swarm-task-crashloop
   - orgId: 1
     uid: swarm-task-oom-killed
+  # Replica PostgreSQL 192.168.1.17 (postgress-1) a fost decomisionată: regulile
+  # care au sens doar cu replică au fost scoase din groups, dar rămân în baza de
+  # date Grafana și continuă să alerteze până nu sunt șterse explicit aici.
+  - orgId: 1
+    uid: postgres-replica-disconnected
+  - orgId: 1
+    uid: postgres-wal-receiver-down
+  - orgId: 1
+    uid: postgres-metrics-missing-postgress-1
 
 groups:
   - orgId: 1
